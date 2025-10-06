@@ -9,44 +9,49 @@ const rateLimit = require('express-rate-limit');
 const path = require('path');
 const fs = require('fs');
 
-// Import middleware and routes
 const authMiddleware = require('./middleware/auth');
 const authRoutes = require('./routes/auth');
 const userRoutes = require('./routes/user');
 const pdfRoutes = require('./routes/pdf');
 
-// Import passport config
 require('./config/passport');
 
 const app = express();
 
-// Create uploads and temp_images directories
 const uploadsDir = path.join(__dirname, 'uploads');
 const tempImagesDir = path.join(__dirname, 'temp_images');
 if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir);
 if (!fs.existsSync(tempImagesDir)) fs.mkdirSync(tempImagesDir);
 
-// Security middleware
 app.use(helmet());
 app.use(rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 100
 }));
 
-// CORS
+// CORS - Support multiple origins
+const allowedOrigins = [
+  'http://localhost:3000',
+  'http://localhost:5173',
+  'https://gnc-phase1-frontend.vercel.app'
+];
+
 app.use(cors({
-  origin: process.env.FRONTEND_URL,
+  origin: function (origin, callback) {
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.indexOf(origin) === -1) {
+      const msg = 'CORS policy does not allow access from the specified Origin.';
+      return callback(new Error(msg), false);
+    }
+    return callback(null, true);
+  },
   credentials: true
 }));
 
-// Body parser
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-
-// Static files for images
 app.use('/images', express.static('temp_images'));
 
-// Session
 app.use(session({
   secret: process.env.SESSION_SECRET,
   resave: false,
@@ -54,25 +59,22 @@ app.use(session({
   cookie: {
     secure: process.env.NODE_ENV === 'production',
     httpOnly: true,
-    maxAge: 24 * 60 * 60 * 1000
+    maxAge: 24 * 60 * 60 * 1000,
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
   }
 }));
 
-// Passport
 app.use(passport.initialize());
 app.use(passport.session());
 
-// MongoDB
 mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log('Connected to MongoDB'))
   .catch(err => console.error('MongoDB connection error:', err));
 
-// Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/user', userRoutes);
 app.use('/api', pdfRoutes);
 
-// Protected dashboard route
 app.get('/api/dashboard', authMiddleware.requireAuth, (req, res) => {
   res.json({
     message: 'Welcome to dashboard',
@@ -83,15 +85,16 @@ app.get('/api/dashboard', authMiddleware.requireAuth, (req, res) => {
   });
 });
 
-// Health check
 app.get('/api/health', (req, res) => {
   res.json({ 
     status: 'OK',
     timestamp: new Date().toISOString()
   });
 });
+app.get('/', (req, res) => {
+  res.json({ message: 'API Root - Server is running.' });
+});
 
-// Error handling middleware
 app.use((err, req, res, next) => {
   console.error('Error occurred:', {
     message: err.message,
@@ -114,7 +117,6 @@ app.use((err, req, res, next) => {
   });
 });
 
-// 404 handler
 app.use((req, res) => {
   res.status(404).json({ 
     error: 'Not found',
@@ -122,9 +124,12 @@ app.use((req, res) => {
   });
 });
 
+
+
 const PORT = process.env.PORT || 5000;
+const HOST = '0.0.0.0';
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-  console.log(`Frontend URL: ${process.env.FRONTEND_URL}`);
+  console.log(`Server running on port ${HOST}:${PORT}`);
+  console.log(`Allowed origins: ${allowedOrigins.join(', ')}`);
   console.log('PDF processing and authentication ready!');
 });
