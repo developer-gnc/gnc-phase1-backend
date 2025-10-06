@@ -23,13 +23,16 @@ const tempImagesDir = path.join(__dirname, 'temp_images');
 if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir);
 if (!fs.existsSync(tempImagesDir)) fs.mkdirSync(tempImagesDir);
 
-app.use(helmet());
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: "cross-origin" }
+}));
+
 app.use(rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 100
 }));
 
-// CORS - Support multiple origins
+// CORS - Support multiple origins including production
 const allowedOrigins = [
   'http://localhost:3000',
   'http://localhost:5173',
@@ -38,19 +41,30 @@ const allowedOrigins = [
 
 app.use(cors({
   origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
     if (!origin) return callback(null, true);
+    
     if (allowedOrigins.indexOf(origin) === -1) {
       const msg = 'CORS policy does not allow access from the specified Origin.';
       return callback(new Error(msg), false);
     }
     return callback(null, true);
   },
-  credentials: true
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use('/images', express.static('temp_images'));
+
+// Serve static images with CORS headers
+app.use('/images', express.static('temp_images', {
+  setHeaders: (res) => {
+    res.set('Access-Control-Allow-Origin', '*');
+    res.set('Cross-Origin-Resource-Policy', 'cross-origin');
+  }
+}));
 
 app.use(session({
   secret: process.env.SESSION_SECRET,
@@ -60,7 +74,8 @@ app.use(session({
     secure: process.env.NODE_ENV === 'production',
     httpOnly: true,
     maxAge: 24 * 60 * 60 * 1000,
-    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+    domain: process.env.NODE_ENV === 'production' ? '.hstgr.cloud' : undefined
   }
 }));
 
@@ -88,9 +103,11 @@ app.get('/api/dashboard', authMiddleware.requireAuth, (req, res) => {
 app.get('/api/health', (req, res) => {
   res.json({ 
     status: 'OK',
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV || 'development'
   });
 });
+
 app.get('/', (req, res) => {
   res.json({ message: 'API Root - Server is running.' });
 });
@@ -124,12 +141,11 @@ app.use((req, res) => {
   });
 });
 
-
-
 const PORT = process.env.PORT || 5000;
 const HOST = '0.0.0.0';
-app.listen(PORT, () => {
-  console.log(`Server running on port ${HOST}:${PORT}`);
+app.listen(PORT, HOST, () => {
+  console.log(`Server running on ${HOST}:${PORT}`);
+  console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log(`Allowed origins: ${allowedOrigins.join(', ')}`);
   console.log('PDF processing and authentication ready!');
 });

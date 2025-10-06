@@ -3,8 +3,14 @@ const pdfService = require('../services/pdfService');
 const geminiService = require('../services/geminiService');
 const calculationService = require('../services/calculationService');
 
+// Get base URL from environment
+const getBaseURL = () => {
+  return process.env.BACKEND_URL || 'http://localhost:5000';
+};
+
 exports.processPDF = async (req, res) => {
   let pdfPath = null;
+  const baseURL = getBaseURL();
   
   try {
     pdfPath = req.file.path;
@@ -13,6 +19,7 @@ exports.processPDF = async (req, res) => {
     console.log('NEW PDF PROCESSING REQUEST');
     console.log('='.repeat(70));
     console.log(`PDF: ${pdfPath}`);
+    console.log(`Base URL: ${baseURL}`);
     
     const pageCount = await pdfService.getPDFPageCount(pdfPath);
     console.log(`Total pages: ${pageCount}`);
@@ -20,6 +27,7 @@ exports.processPDF = async (req, res) => {
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
 
     res.write(`data: ${JSON.stringify({ 
       type: 'status', 
@@ -49,11 +57,12 @@ exports.processPDF = async (req, res) => {
         })}\n\n`);
 
         const imageData = await pdfService.convertPDFPageToImage(pdfPath, i);
+        const imageUrl = `${baseURL}${imageData.url}`;
         
         res.write(`data: ${JSON.stringify({ 
           type: 'image_ready', 
           pageNumber: i,
-          imageUrl: `http://localhost:5000${imageData.url}`,
+          imageUrl: imageUrl,
           message: `Image ready for page ${i}` 
         })}\n\n`);
 
@@ -61,7 +70,7 @@ exports.processPDF = async (req, res) => {
           type: 'progress', 
           totalPages: pageCount, 
           currentPage: i,
-          imageUrl: `http://localhost:5000${imageData.url}`,
+          imageUrl: imageUrl,
           message: `Extracting data from page ${i}...` 
         })}\n\n`);
 
@@ -81,7 +90,7 @@ exports.processPDF = async (req, res) => {
           pageNumber: i,
           data: pageResultWithPageNumber,
           rawOutput: rawOutput,
-          imageUrl: `http://localhost:5000${imageData.url}`,
+          imageUrl: imageUrl,
           error: parseError
         });
 
@@ -96,7 +105,7 @@ exports.processPDF = async (req, res) => {
           pageNumber: i,
           pageData: pageResultWithPageNumber,
           rawOutput: rawOutput,
-          imageUrl: `http://localhost:5000${imageData.url}`,
+          imageUrl: imageUrl,
           error: parseError,
           message: parseError ? `Page ${i} completed with warnings` : `Page ${i} complete` 
         })}\n\n`);
