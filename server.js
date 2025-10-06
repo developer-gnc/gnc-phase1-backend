@@ -8,6 +8,7 @@ const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const path = require('path');
 const fs = require('fs');
+const https = require('https');
 
 const authMiddleware = require('./middleware/auth');
 const authRoutes = require('./routes/auth');
@@ -141,11 +142,27 @@ app.use((req, res) => {
   });
 });
 
+// SSL Configuration
 const PORT = process.env.PORT || 5000;
 const HOST = '0.0.0.0';
-app.listen(PORT, HOST, () => {
-  console.log(`Server running on ${HOST}:${PORT}`);
-  console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`Allowed origins: ${allowedOrigins.join(', ')}`);
-  console.log('PDF processing and authentication ready!');
-});
+
+if (process.env.NODE_ENV === 'production') {
+  const httpsOptions = {
+    key: fs.readFileSync('/etc/letsencrypt/live/srv1047946.hstgr.cloud/privkey.pem'),
+    cert: fs.readFileSync('/etc/letsencrypt/live/srv1047946.hstgr.cloud/fullchain.pem')
+  };
+  
+  https.createServer(httpsOptions, app).listen(PORT, HOST, () => {
+    console.log(`HTTPS Server running on ${HOST}:${PORT}`);
+    console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+    console.log(`Allowed origins: ${allowedOrigins.join(', ')}`);
+    console.log('PDF processing and authentication ready!');
+  });
+} else {
+  app.listen(PORT, HOST, () => {
+    console.log(`Server running on ${HOST}:${PORT}`);
+    console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+    console.log(`Allowed origins: ${allowedOrigins.join(', ')}`);
+    console.log('PDF processing and authentication ready!');
+  });
+}
