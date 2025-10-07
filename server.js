@@ -8,7 +8,6 @@ const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const path = require('path');
 const fs = require('fs');
-const https = require('https');
 
 const authMiddleware = require('./middleware/auth');
 const authRoutes = require('./routes/auth');
@@ -24,63 +23,69 @@ const tempImagesDir = path.join(__dirname, 'temp_images');
 if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir);
 if (!fs.existsSync(tempImagesDir)) fs.mkdirSync(tempImagesDir);
 
+// Trust proxy - IMPORTANT for Hostinger
+app.set('trust proxy', 1);
+
+// Enhanced Helmet configuration for production
 app.use(helmet({
-  crossOriginResourcePolicy: { policy: "cross-origin" }
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      scriptSrc: ["'self'"],
+      imgSrc: ["'self'", "data:", "https:"],
+    },
+  },
+  hsts: {
+    maxAge: 31536000,
+    includeSubDomains: true,
+    preload: true
+  }
 }));
 
 app.use(rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 100
+  max: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
 }));
 
-// CORS - Support multiple origins including production
+// CORS - Support multiple origins
 const allowedOrigins = [
   'http://localhost:3000',
   'http://localhost:5173',
-  'https://gnc-phase1-frontend.vercel.app'
-];
+  'https://gnc-phase1-frontend.vercel.app',
+  process.env.FRONTEND_URL // Add your production frontend URL via env variable
+].filter(Boolean);
+
 app.use(cors({
   origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps, curl, or OAuth redirects)
     if (!origin) return callback(null, true);
-    
-    // Allow all origins in the whitelist
-    if (allowedOrigins.indexOf(origin) !== -1) {
-      return callback(null, true);
+    if (allowedOrigins.indexOf(origin) === -1) {
+      const msg = 'CORS policy does not allow access from the specified Origin.';
+      return callback(new Error(msg), false);
     }
-    
-    // For any other origin, allow it but log it (less strict for OAuth flow)
-    console.log('Origin not in whitelist but allowing:', origin);
     return callback(null, true);
   },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-  exposedHeaders: ['set-cookie']
+  credentials: true
 }));
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use('/images', express.static('temp_images'));
 
-// Serve static images with CORS headers
-app.use('/images', express.static('temp_images', {
-  setHeaders: (res) => {
-    res.set('Access-Control-Allow-Origin', '*');
-    res.set('Cross-Origin-Resource-Policy', 'cross-origin');
-  }
-}));
-
-// Fixed session configuration for cross-origin cookies
 app.use(session({
   secret: process.env.SESSION_SECRET,
   resave: false,
   saveUninitialized: false,
   cookie: {
-    secure: true,              // Always use HTTPS in production
+    secure: process.env.NODE_ENV === 'production', // Will be true on Hostinger
     httpOnly: true,
     maxAge: 24 * 60 * 60 * 1000,
-    sameSite: 'none'           // Required for cross-origin (Vercel → Hostinger)
-    // Removed domain restriction to allow cookies from any domain
-  }
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+    domain: process.env.COOKIE_DOMAIN || undefined // Optional: set if needed
+  },
+  proxy: true // Important for HTTPS behind proxy
 }));
 
 app.use(passport.initialize());
@@ -108,12 +113,9 @@ app.get('/api/health', (req, res) => {
   res.json({ 
     status: 'OK',
     timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV || 'development'
+    secure: req.secure,
+    protocol: req.protocol
   });
-});
-
-app.get('/', (req, res) => {
-  res.json({ message: 'API Root - Server is running.' });
 });
 
 app.use((err, req, res, next) => {
@@ -145,27 +147,11 @@ app.use((req, res) => {
   });
 });
 
-// SSL Configuration
 const PORT = process.env.PORT || 5000;
 const HOST = '0.0.0.0';
-
-if (process.env.NODE_ENV === 'production') {
-  const httpsOptions = {
-    key: fs.readFileSync('/etc/letsencrypt/live/srv1047946.hstgr.cloud/privkey.pem'),
-    cert: fs.readFileSync('/etc/letsencrypt/live/srv1047946.hstgr.cloud/fullchain.pem')
-  };
-  
-  https.createServer(httpsOptions, app).listen(PORT, HOST, () => {
-    console.log(`HTTPS Server running on ${HOST}:${PORT}`);
-    console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
-    console.log(`Allowed origins: ${allowedOrigins.join(', ')}`);
-    console.log('PDF processing and authentication ready!');
-  });
-} else {
-  app.listen(PORT, HOST, () => {
-    console.log(`Server running on ${HOST}:${PORT}`);
-    console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
-    console.log(`Allowed origins: ${allowedOrigins.join(', ')}`);
-    console.log('PDF processing and authentication ready!');
-  });
-}
+app.listen(PORT, HOST, () => {
+  console.log(`Server running on ${HOST}:${PORT}`);
+  console.log(`Environment: ${process.env.NODE_ENV}`);
+  console.log(`Allowed origins: ${allowedOrigins.join(', ')}`);
+  console.log('PDF processing and authentication ready!');
+});
