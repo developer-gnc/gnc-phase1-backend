@@ -67,16 +67,17 @@ app.use('/images', express.static('temp_images', {
   }
 }));
 
+// Fixed session configuration for cross-origin cookies
 app.use(session({
   secret: process.env.SESSION_SECRET,
   resave: false,
   saveUninitialized: false,
   cookie: {
-    secure: process.env.NODE_ENV === 'production',
+    secure: true,              // Always use HTTPS in production
     httpOnly: true,
     maxAge: 24 * 60 * 60 * 1000,
-    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
-    domain: process.env.NODE_ENV === 'production' ? '.hstgr.cloud' : undefined
+    sameSite: 'none'           // Required for cross-origin (Vercel → Hostinger)
+    // Removed domain restriction to allow cookies from any domain
   }
 }));
 
