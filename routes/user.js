@@ -1,17 +1,10 @@
 const express = require('express');
 const User = require('../models/User');
+const { requireAuth } = require('../middleware/auth');
 const router = express.Router();
 
-// Middleware to check if user is authenticated
-const isAuthenticated = (req, res, next) => {
-  if (req.isAuthenticated()) {
-    return next();
-  }
-  res.status(401).json({ error: 'Not authenticated' });
-};
-
 // Get current user profile
-router.get('/profile', isAuthenticated, (req, res) => {
+router.get('/profile', requireAuth, (req, res) => {
   try {
     const user = {
       id: req.user._id,
@@ -29,12 +22,11 @@ router.get('/profile', isAuthenticated, (req, res) => {
   }
 });
 
-// Update user profile (limited fields)
-router.put('/profile', isAuthenticated, async (req, res) => {
+// Update user profile
+router.put('/profile', requireAuth, async (req, res) => {
   try {
     const { firstName, lastName } = req.body;
     
-    // Validate input
     if (!firstName || !lastName) {
       return res.status(400).json({ error: 'First name and last name are required' });
     }
@@ -69,8 +61,8 @@ router.put('/profile', isAuthenticated, async (req, res) => {
   }
 });
 
-// Get all users (admin functionality - you can add role-based access later)
-router.get('/all', isAuthenticated, async (req, res) => {
+// Get all users
+router.get('/all', requireAuth, async (req, res) => {
   try {
     const users = await User.find({ isActive: true })
       .select('email name firstName lastName profilePicture lastLogin createdAt')
