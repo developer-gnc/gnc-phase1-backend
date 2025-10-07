@@ -77,6 +77,12 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use('/images', express.static('temp_images'));
 
+
+app.use((req, res, next) => {
+  console.log(`📍 ${req.method} ${req.url}`);
+  next();
+});
+
 // MongoDB Session Store - Fixes MemoryStore warning
 app.use(session({
   secret: process.env.SESSION_SECRET,
