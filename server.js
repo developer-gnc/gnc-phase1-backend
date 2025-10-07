@@ -3,11 +3,14 @@ const express = require('express');
 const mongoose = require('mongoose');
 const passport = require('passport');
 const session = require('express-session');
+const MongoStore = require('connect-mongo');
 const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const path = require('path');
 const fs = require('fs');
+const https = require('https');
+const http = require('http');
 
 const authMiddleware = require('./middleware/auth');
 const authRoutes = require('./routes/auth');
@@ -74,10 +77,20 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use('/images', express.static('temp_images'));
 
+// MongoDB Session Store - Fixes MemoryStore warning
 app.use(session({
   secret: process.env.SESSION_SECRET,
   resave: false,
   saveUninitialized: false,
+  store: MongoStore.create({
+    mongoUrl: process.env.MONGO_URI,
+    touchAfter: 24 * 3600, // lazy session update (24 hours)
+    crypto: {
+      secret: process.env.SESSION_SECRET
+    },
+    collectionName: 'sessions',
+    ttl: 24 * 60 * 60 // Session TTL (1 day in seconds)
+  }),
   cookie: {
     secure: process.env.NODE_ENV === 'production', // Will be true on Hostinger
     httpOnly: true,
@@ -149,9 +162,33 @@ app.use((req, res) => {
 
 const PORT = process.env.PORT || 5000;
 const HOST = '0.0.0.0';
-app.listen(PORT, HOST, () => {
-  console.log(`Server running on ${HOST}:${PORT}`);
-  console.log(`Environment: ${process.env.NODE_ENV}`);
-  console.log(`Allowed origins: ${allowedOrigins.join(', ')}`);
-  console.log('PDF processing and authentication ready!');
-});
+
+// Check for SSL certificates and start appropriate server
+const sslKeyPath = '/etc/letsencrypt/live/srv1047946.hstgr.cloud/privkey.pem';
+const sslCertPath = '/etc/letsencrypt/live/srv1047946.hstgr.cloud/fullchain.pem';
+
+if (fs.existsSync(sslKeyPath) && fs.existsSync(sslCertPath)) {
+  // HTTPS Server
+  const httpsOptions = {
+    key: fs.readFileSync(sslKeyPath),
+    cert: fs.readFileSync(sslCertPath)
+  };
+
+  https.createServer(httpsOptions, app).listen(PORT, HOST, () => {
+    console.log(`✓ Secure HTTPS server running on https://${HOST}:${PORT}`);
+    console.log(`Environment: ${process.env.NODE_ENV}`);
+    console.log(`Allowed origins: ${allowedOrigins.join(', ')}`);
+    console.log('PDF processing and authentication ready!');
+    console.log('MongoDB session store active');
+  });
+} else {
+  // HTTP Server (fallback)
+  http.createServer(app).listen(PORT, HOST, () => {
+    console.log(`⚠ HTTP server running on http://${HOST}:${PORT}`);
+    console.log(`Environment: ${process.env.NODE_ENV}`);
+    console.log(`Allowed origins: ${allowedOrigins.join(', ')}`);
+    console.log('PDF processing and authentication ready!');
+    console.log('MongoDB session store active');
+    console.log('⚠ Warning: SSL certificates not found. Running on HTTP.');
+  });
+}
