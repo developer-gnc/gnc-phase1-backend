@@ -36,14 +36,15 @@ app.use(helmet({
       defaultSrc: ["'self'"],
       styleSrc: ["'self'", "'unsafe-inline'"],
       scriptSrc: ["'self'"],
-      imgSrc: ["'self'", "data:", "https:"],
+      imgSrc: ["'self'", "data:", "https:", "http:"],
     },
   },
   hsts: {
     maxAge: 31536000,
     includeSubDomains: true,
     preload: true
-  }
+  },
+  crossOriginResourcePolicy: { policy: "cross-origin" }
 }));
 
 app.use(rateLimit({
@@ -58,7 +59,7 @@ const allowedOrigins = [
   'http://localhost:3000',
   'http://localhost:5173',
   'https://gnc-phase1-frontend.vercel.app',
-  process.env.FRONTEND_URL // Add your production frontend URL via env variable
+  process.env.FRONTEND_URL
 ].filter(Boolean);
 
 app.use(cors({
@@ -75,44 +76,52 @@ app.use(cors({
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use('/images', express.static('temp_images'));
 
+// Static files with CORS headers - MUST be after CORS middleware
+app.use('/images', express.static('temp_images', {
+  setHeaders: (res) => {
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  }
+}));
 
 app.use((req, res, next) => {
-  console.log(`📍 ${req.method} ${req.url}`);
+  console.log(`🔍 ${req.method} ${req.url}`);
   next();
 });
 
-// MongoDB Session Store - Fixes MemoryStore warning
+// MongoDB Session Store
 app.use(session({
   secret: process.env.SESSION_SECRET,
   resave: false,
   saveUninitialized: false,
   store: MongoStore.create({
     mongoUrl: process.env.MONGO_URI,
-    touchAfter: 24 * 3600, // lazy session update (24 hours)
+    touchAfter: 24 * 3600,
     crypto: {
       secret: process.env.SESSION_SECRET
     },
     collectionName: 'sessions',
-    ttl: 24 * 60 * 60 // Session TTL (1 day in seconds)
+    ttl: 24 * 60 * 60
   }),
   cookie: {
-    secure: process.env.NODE_ENV === 'production', // Will be true on Hostinger
+    secure: process.env.NODE_ENV === 'production',
     httpOnly: true,
     maxAge: 24 * 60 * 60 * 1000,
     sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
-    domain: process.env.COOKIE_DOMAIN || undefined // Optional: set if needed
+    domain: process.env.COOKIE_DOMAIN || undefined
   },
-  proxy: true // Important for HTTPS behind proxy
+  proxy: true
 }));
 
 app.use(passport.initialize());
 app.use(passport.session());
 
 mongoose.connect(process.env.MONGO_URI)
-  .then(() => console.log('Connected to MongoDB'))
-  .catch(err => console.error('MongoDB connection error:', err));
+  .then(() => console.log('✅ Connected to MongoDB'))
+  .catch(err => console.error('❌ MongoDB connection error:', err));
 
 // Root route
 app.get('/', (req, res) => {
@@ -154,7 +163,7 @@ app.get('/api/health', (req, res) => {
 });
 
 app.use((err, req, res, next) => {
-  console.error('Error occurred:', {
+  console.error('❌ Error occurred:', {
     message: err.message,
     stack: err.stack,
     url: req.url,
@@ -197,20 +206,26 @@ if (fs.existsSync(sslKeyPath) && fs.existsSync(sslCertPath)) {
   };
 
   https.createServer(httpsOptions, app).listen(PORT, HOST, () => {
-    console.log(`✓ Secure HTTPS server running on https://${HOST}:${PORT}`);
-    console.log(`Environment: ${process.env.NODE_ENV}`);
+    console.log(`\n${'='.repeat(70)}`);
+    console.log(`✅ Secure HTTPS server running on https://${HOST}:${PORT}`);
+    console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
     console.log(`Allowed origins: ${allowedOrigins.join(', ')}`);
-    console.log('PDF processing and authentication ready!');
-    console.log('MongoDB session store active');
+    console.log('✅ PDF processing and authentication ready!');
+    console.log('✅ MongoDB session store active');
+    console.log('✅ CORS configured for static images');
+    console.log(`${'='.repeat(70)}\n`);
   });
 } else {
   // HTTP Server (fallback)
   http.createServer(app).listen(PORT, HOST, () => {
-    console.log(`⚠ HTTP server running on http://${HOST}:${PORT}`);
-    console.log(`Environment: ${process.env.NODE_ENV}`);
+    console.log(`\n${'='.repeat(70)}`);
+    console.log(`⚠️  HTTP server running on http://${HOST}:${PORT}`);
+    console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
     console.log(`Allowed origins: ${allowedOrigins.join(', ')}`);
-    console.log('PDF processing and authentication ready!');
-    console.log('MongoDB session store active');
-    console.log('⚠ Warning: SSL certificates not found. Running on HTTP.');
+    console.log('✅ PDF processing and authentication ready!');
+    console.log('✅ MongoDB session store active');
+    console.log('✅ CORS configured for static images');
+    console.log('⚠️  Warning: SSL certificates not found. Running on HTTP.');
+    console.log(`${'='.repeat(70)}\n`);
   });
 }
