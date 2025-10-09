@@ -1,8 +1,27 @@
 const { GoogleGenerativeAI } = require('@google/generative-ai');
-const RequestQueue = require('../utils/RequestQueue');
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const geminiQueue = new RequestQueue(10);
+// Load API keys from environment variables
+const API_KEYS = [
+  process.env.GEMINI_API_KEY_1,
+  process.env.GEMINI_API_KEY_2,
+  process.env.GEMINI_API_KEY_3,
+  process.env.GEMINI_API_KEY_4,
+  process.env.GEMINI_API_KEY_5,
+  process.env.GEMINI_API_KEY_6,
+  process.env.GEMINI_API_KEY_7,
+  process.env.GEMINI_API_KEY_8,
+  process.env.GEMINI_API_KEY_9,
+  process.env.GEMINI_API_KEY_10
+].filter(key => key && key.trim() !== '');
+
+if (API_KEYS.length === 0) {
+  console.warn('⚠️  No GEMINI_API_KEY_* found, falling back to GEMINI_API_KEY');
+  API_KEYS.push(process.env.GEMINI_API_KEY);
+}
+
+console.log(`🔑 Loaded ${API_KEYS.length} API key(s)`);
+
+const geminiClients = API_KEYS.map(key => new GoogleGenerativeAI(key));
 
 const EXTRACTION_PROMPT = `You are a data extraction specialist. Extract information from this invoice/document image and categorize it into one of these categories:
 1. Labour
@@ -37,125 +56,225 @@ IMPORTANT RULES:
 6. For numeric values, extract as numbers not strings
 7. For dates, use format: YYYY-MM-DD or as shown in document
 8. For time fields, use format: HH:MM or as shown in document
+9. If the page is blank or has no extractable data, return an empty array: []
 
 Return ONLY the JSON array, no explanations or additional text.`;
 
-exports.analyzeImage = async (imageBase64, pageNumber) => {
-  return geminiQueue.add(async () => {
+// Parse Gemini response
+const parseGeminiResponse = (text) => {
+  try {
+    const cleanText = text.trim();
+    
+    // Try direct parse
+    if (cleanText.startsWith('[') && cleanText.endsWith(']')) {
+      const parsed = JSON.parse(cleanText);
+      if (Array.isArray(parsed)) {
+        return { parsed, error: null };
+      }
+    }
+
+    // Extract JSON array from text
+    const jsonMatch = text.match(/\[[\s\S]*\]/);
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0]);
+      if (Array.isArray(parsed)) {
+        return { parsed, error: null };
+      }
+    }
+
+    // Empty response is valid - not an error
+    return { parsed: [], error: null };
+  } catch (e) {
+    return { parsed: [], error: `Parse error: ${e.message}` };
+  }
+};
+
+// Analyze single image with specific API key
+const analyzeSingleImage = async (imageBase64, pageNumber, keyIndex) => {
+  const model = geminiClients[keyIndex].getGenerativeModel({ 
+    model: "gemini-2.0-flash"
+  });
+
+  const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, '');
+  const imagePart = {
+    inlineData: {
+      data: base64Data,
+      mimeType: "image/png",
+    },
+  };
+
+  const result = await model.generateContent([EXTRACTION_PROMPT, imagePart]);
+  const response = await result.response;
+  const text = response.text();
+
+  return parseGeminiResponse(text);
+};
+
+// Retry with exponential backoff
+const retryWithBackoff = async (fn, maxRetries = 3, baseDelay = 1000) => {
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
-      console.log(`\nAnalyzing Page ${pageNumber} with Gemini...`);
-      const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
+      return await fn();
+    } catch (error) {
+      const isRateLimit = error.message.includes('429') || 
+                         error.message.includes('quota') || 
+                         error.message.includes('rate');
+      
+      const isNetworkError = error.message.includes('fetch') ||
+                            error.message.includes('network') ||
+                            error.message.includes('ECONNREFUSED');
 
-      const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, '');
-      console.log(`   Image size: ${base64Data.length} characters`);
+      // Only retry on rate limits or network errors
+      if ((isRateLimit || isNetworkError) && attempt < maxRetries - 1) {
+        const delay = baseDelay * Math.pow(2, attempt);
+        console.log(`   ⏳ Retry attempt ${attempt + 1}/${maxRetries} after ${delay}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        continue;
+      }
+      
+      throw error;
+    }
+  }
+};
 
-      const imagePart = {
-        inlineData: {
-          data: base64Data,
-          mimeType: "image/png",
-        },
+// Process images in parallel batches
+exports.analyzeImagesParallel = async (images, onProgress) => {
+  console.log(`\n${'='.repeat(70)}`);
+  console.log(`STARTING OPTIMIZED PARALLEL ANALYSIS`);
+  console.log(`${'='.repeat(70)}`);
+  console.log(`Total images: ${images.length}`);
+  console.log(`API Keys: ${API_KEYS.length}`);
+  console.log(`Concurrent requests: ${API_KEYS.length}`);
+  console.log(`${'='.repeat(70)}\n`);
+  
+  const results = new Array(images.length).fill(null);
+  const failedPages = [];
+  let completedCount = 0;
+
+  // Process all images in parallel with API key rotation
+  const processImage = async (image, index) => {
+    const keyIndex = index % API_KEYS.length;
+    
+    try {
+      const result = await retryWithBackoff(async () => {
+        return await analyzeSingleImage(image.base64, image.pageNumber, keyIndex);
+      });
+
+      // Empty response is valid - no error
+      results[index] = {
+        parsed: result.parsed,
+        raw: JSON.stringify(result.parsed),
+        error: result.error
       };
 
-      console.log(`   Sending to Gemini...`);
-      const startTime = Date.now();
-      
-      const result = await model.generateContent([EXTRACTION_PROMPT, imagePart]);
-      const response = await result.response;
-      const text = response.text();
-      
-      const elapsed = Date.now() - startTime;
-      console.log(`   Response received in ${elapsed}ms`);
-      console.log(`   Response length: ${text.length} characters`);
-
-      let parsed = [];
-      let parseError = null;
-
-      try {
-        const cleanText = text.trim();
-        if (cleanText.startsWith('[') && cleanText.endsWith(']')) {
-          parsed = JSON.parse(cleanText);
-          console.log(`   Successfully parsed ${parsed.length} items`);
-          return { parsed, raw: text, error: null };
-        }
-      } catch (e) {
-        console.log(`   Direct parse failed: ${e.message}`);
+      completedCount++;
+      if (onProgress) {
+        onProgress(completedCount, images.length, image.pageNumber);
       }
 
-      const jsonMatch = text.match(/\[[\s\S]*\]/);
-      if (jsonMatch) {
-        try {
-          parsed = JSON.parse(jsonMatch[0]);
-          console.log(`   Successfully parsed ${parsed.length} items`);
-          return { parsed, raw: text, error: null };
-        } catch (e) {
-          console.log(`   JSON parse error: ${e.message}`);
-          parseError = e.message;
-          
-          let jsonStr = jsonMatch[0];
-          let lastValidIndex = jsonStr.lastIndexOf('},');
-          if (lastValidIndex > 0) {
-            jsonStr = jsonStr.substring(0, lastValidIndex + 1) + ']';
-            try {
-              parsed = JSON.parse(jsonStr);
-              console.log(`   Recovered ${parsed.length} items (fixed truncation)`);
-              return { 
-                parsed, 
-                raw: text, 
-                error: `Warning: JSON was truncated. Recovered ${parsed.length} items.`
-              };
-            } catch (e2) {
-              console.log(`   Truncation fix failed`);
-            }
-          }
-        }
+      if (result.parsed.length > 0) {
+        console.log(`   ✅ Page ${image.pageNumber} - Extracted ${result.parsed.length} items (Key ${keyIndex + 1})`);
+      } else if (result.error) {
+        console.log(`   ⚠️  Page ${image.pageNumber} - Error: ${result.error} (Key ${keyIndex + 1})`);
+        failedPages.push({ index, pageNumber: image.pageNumber, keyIndex });
+      } else {
+        console.log(`   ✓ Page ${image.pageNumber} - Empty page (Key ${keyIndex + 1})`);
       }
-
-      const objectRegex = /\{\s*"category"\s*:\s*"[^"]+"\s*,\s*"data"\s*:\s*\{[^}]+\}\s*\}/g;
-      const matches = [...text.matchAll(objectRegex)];
-      
-      for (const match of matches) {
-        try {
-          const obj = JSON.parse(match[0]);
-          if (obj.category && obj.data) {
-            parsed.push(obj);
-          }
-        } catch (e) {
-          // Skip invalid objects
-        }
-      }
-
-      if (parsed.length > 0) {
-        console.log(`   Recovered ${parsed.length} items from patterns`);
-        return { 
-          parsed, 
-          raw: text, 
-          error: `Warning: Extracted ${parsed.length} items using fallback parsing.`
-        };
-      }
-
-      console.warn(`   Could not parse any valid JSON from response`);
-      return { 
-        parsed: [], 
-        raw: text, 
-        error: `Error: Could not parse JSON. ${parseError || 'No JSON found in response.'}`
-      };
 
     } catch (error) {
-      console.error(`   Gemini API error:`, error.message);
+      console.error(`   ❌ Page ${image.pageNumber} - Failed: ${error.message.substring(0, 100)} (Key ${keyIndex + 1})`);
       
-      if (error.message.includes('429') || error.message.includes('quota')) {
-        return { 
-          parsed: [], 
-          raw: `Rate Limit Error: ${error.message}`, 
-          error: `Rate Limit: Too many requests. Please wait and try again.`
-        };
-      }
-      
-      return { 
-        parsed: [], 
-        raw: `API Error: ${error.message}`, 
-        error: `API Error: ${error.message}`
+      // Mark as failed for retry
+      failedPages.push({ index, pageNumber: image.pageNumber, keyIndex });
+      results[index] = {
+        parsed: [],
+        raw: `Error: ${error.message}`,
+        error: error.message
       };
+
+      completedCount++;
+      if (onProgress) {
+        onProgress(completedCount, images.length, image.pageNumber);
+      }
     }
+  };
+
+  // Process all images in batches of API_KEYS.length
+  const batchSize = API_KEYS.length;
+  for (let i = 0; i < images.length; i += batchSize) {
+    const batch = images.slice(i, i + batchSize);
+    const batchPromises = batch.map((image, batchIndex) => 
+      processImage(image, i + batchIndex)
+    );
+    
+    await Promise.all(batchPromises);
+    
+    // Small delay between batches to avoid overwhelming the API
+    if (i + batchSize < images.length) {
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+  }
+
+  // Retry failed pages with different keys
+  if (failedPages.length > 0) {
+    console.log(`\n${'='.repeat(70)}`);
+    console.log(`RETRYING ${failedPages.length} FAILED PAGES`);
+    console.log(`${'='.repeat(70)}\n`);
+
+    for (const { index, pageNumber, keyIndex } of failedPages) {
+      // Try with a different key
+      const newKeyIndex = (keyIndex + 1) % API_KEYS.length;
+      const image = images[index];
+
+      try {
+        console.log(`   🔄 Retrying Page ${pageNumber} with Key ${newKeyIndex + 1}...`);
+        
+        const result = await retryWithBackoff(async () => {
+          return await analyzeSingleImage(image.base64, pageNumber, newKeyIndex);
+        });
+
+        results[index] = {
+          parsed: result.parsed,
+          raw: JSON.stringify(result.parsed),
+          error: result.error
+        };
+
+        if (result.parsed.length > 0) {
+          console.log(`   ✅ Page ${pageNumber} - Recovered ${result.parsed.length} items`);
+        } else if (result.error) {
+          console.log(`   ⚠️  Page ${pageNumber} - Still failed: ${result.error}`);
+        } else {
+          console.log(`   ✓ Page ${pageNumber} - Confirmed empty`);
+        }
+
+      } catch (error) {
+        console.error(`   ❌ Page ${pageNumber} - Retry failed: ${error.message.substring(0, 100)}`);
+        // Keep the original error result
+      }
+    }
+  }
+
+  // Calculate statistics
+  const successCount = results.filter(r => r.parsed.length > 0).length;
+  const emptyCount = results.filter(r => r.parsed.length === 0 && !r.error).length;
+  const errorCount = results.filter(r => r.error).length;
+  const totalItems = results.reduce((sum, r) => sum + r.parsed.length, 0);
+
+  console.log(`\n${'='.repeat(70)}`);
+  console.log(`ANALYSIS COMPLETE`);
+  console.log(`${'='.repeat(70)}`);
+  console.log(`✅ Pages with data: ${successCount}/${images.length}`);
+  console.log(`✓ Empty pages: ${emptyCount}/${images.length}`);
+  console.log(`❌ Errors: ${errorCount}/${images.length}`);
+  console.log(`📊 Total items extracted: ${totalItems}`);
+  console.log(`${'='.repeat(70)}\n`);
+  
+  return results;
+};
+
+// Single image analysis (backward compatibility)
+exports.analyzeImage = async (imageBase64, pageNumber) => {
+  return await retryWithBackoff(async () => {
+    return await analyzeSingleImage(imageBase64, pageNumber, 0);
   });
 };
