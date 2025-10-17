@@ -43,6 +43,9 @@ router.post('/process-pdf', upload.single('pdf'), pdfController.processPDF);
 // Cancel processing with user validation
 router.post('/cancel-processing', pdfController.cancelProcessing);
 
+// New endpoint to cleanup session images when user closes/finishes
+router.post('/cleanup-session-images', pdfController.cleanupSessionImages);
+
 // Get active sessions for current user
 router.get('/active-sessions', pdfController.getActiveSessions);
 

@@ -16,6 +16,7 @@ const authMiddleware = require('./middleware/auth');
 const authRoutes = require('./routes/auth');
 const userRoutes = require('./routes/user');
 const pdfRoutes = require('./routes/pdf');
+const secureImageRoutes = require('./routes/images'); // NEW - Secure image routes
 
 require('./config/passport');
 
@@ -77,15 +78,19 @@ app.use(cors({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Static files with CORS headers - MUST be after CORS middleware
-app.use('/images', express.static('temp_images', {
-  setHeaders: (res) => {
-    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  }
-}));
+// CRITICAL SECURITY FIX: Replace static image serving with secure authenticated routes
+// REMOVED INSECURE STATIC SERVING:
+// app.use('/images', express.static('temp_images', {
+//   setHeaders: (res) => {
+//     res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+//     res.setHeader('Access-Control-Allow-Origin', '*');
+//     res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+//     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+//   }
+// }));
+
+// NEW: Use secure image routes with authentication
+app.use('/images', secureImageRoutes);
 
 app.use((req, res, next) => {
   console.log(`🔍 ${req.method} ${req.url}`);
@@ -130,11 +135,18 @@ app.get('/', (req, res) => {
     version: '1.0.0',
     status: 'running',
     timestamp: new Date().toISOString(),
+    security: {
+      imageRoutesSecured: true,
+      authenticationRequired: true,
+      userIsolation: true,
+      staticImageServingRemoved: true
+    },
     endpoints: {
       health: '/api/health',
       auth: '/api/auth',
       user: '/api/user',
-      dashboard: '/api/dashboard'
+      dashboard: '/api/dashboard',
+      secureImages: '/images (authenticated)'
     }
   });
 });
@@ -158,7 +170,13 @@ app.get('/api/health', (req, res) => {
     status: 'OK',
     timestamp: new Date().toISOString(),
     secure: req.secure,
-    protocol: req.protocol
+    protocol: req.protocol,
+    security: {
+      imageRoutesSecured: true,
+      authenticationRequired: true,
+      userIsolation: true,
+      staticImageServingRemoved: true
+    }
   });
 });
 
@@ -212,20 +230,28 @@ if (fs.existsSync(sslKeyPath) && fs.existsSync(sslCertPath)) {
     console.log(`Allowed origins: ${allowedOrigins.join(', ')}`);
     console.log('✅ PDF processing and authentication ready!');
     console.log('✅ MongoDB session store active');
-    console.log('✅ CORS configured for static images');
+    console.log('🔒 SECURE image routes with authentication enabled');
+    console.log('👥 Multi-user isolation ACTIVE');
+    console.log('📷 Images protected by user authentication');
+    console.log('🛡️ Static image serving REMOVED for security');
     console.log(`${'='.repeat(70)}\n`);
   });
 } else {
   // HTTP Server (fallback)
   http.createServer(app).listen(PORT, HOST, () => {
     console.log(`\n${'='.repeat(70)}`);
-    console.log(`⚠️  HTTP server running on http://${HOST}:${PORT}`);
+    console.log(`⚠️ HTTP server running on http://${HOST}:${PORT}`);
     console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
     console.log(`Allowed origins: ${allowedOrigins.join(', ')}`);
     console.log('✅ PDF processing and authentication ready!');
     console.log('✅ MongoDB session store active');
-    console.log('✅ CORS configured for static images');
-    console.log('⚠️  Warning: SSL certificates not found. Running on HTTP.');
+    console.log('🔒 SECURE image routes with authentication enabled');
+    console.log('👥 Multi-user isolation ACTIVE');
+    console.log('📷 Images protected by user authentication');
+    console.log('🛡️ Static image serving REMOVED for security');
+    console.log('⚠️ Warning: SSL certificates not found. Running on HTTP.');
     console.log(`${'='.repeat(70)}\n`);
   });
 }
+
+// latest session code
