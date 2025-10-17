@@ -37,13 +37,16 @@ const upload = multer({
 // Apply authentication to all PDF processing routes
 router.use(requireAuth);
 
-// Process PDF with authentication
+// Process PDF with authentication (Phase 1: Convert to images)
 router.post('/process-pdf', upload.single('pdf'), pdfController.processPDF);
+
+// NEW: Process selected images (Phase 2: AI Analysis)
+router.post('/process-selected-images', pdfController.processSelectedImages);
 
 // Cancel processing with user validation
 router.post('/cancel-processing', pdfController.cancelProcessing);
 
-// New endpoint to cleanup session images when user closes/finishes
+// Cleanup session images when user closes/finishes
 router.post('/cleanup-session-images', pdfController.cleanupSessionImages);
 
 // Get active sessions for current user
@@ -55,7 +58,11 @@ router.get('/pdf-health', (req, res) => {
     status: 'OK',
     message: 'PDF processing service is running',
     user: req.user.email,
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    features: {
+      imageSelection: true,
+      userControl: true
+    }
   });
 });
 

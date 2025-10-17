@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const pdfService = require('../services/pdfService');
 const geminiService = require('../services/geminiService');
 const calculationService = require('../services/calculationService');
@@ -59,7 +60,6 @@ exports.processPDF = async (req, res) => {
   try {
     pdfPath = req.file.path;
     
-    // Register session with enhanced security
     sessionStore.createSession(userId, sessionId, {
       userEmail: userEmail,
       pdfPath: pdfPath,
@@ -173,15 +173,72 @@ exports.processPDF = async (req, res) => {
       return res.end();
     }
 
-    console.log(`\nPHASE 2: Analyzing all pages in PARALLEL for user ${userEmail}...`);
+    // NEW: Send images for user selection
+    res.write(`data: ${JSON.stringify({ 
+      type: 'images_ready',
+      sessionId: sessionId,
+      allImages: allImages,
+      message: 'Images ready for selection. Please choose which pages to process.' 
+    })}\n\n`);
+
+    console.log(`📷 Images sent to user for selection. Waiting for user input...`);
+    
+  } catch (error) {
+    console.error(`\nPROCESSING ERROR for user ${userEmail}:`, error);
+    
+    safeCleanup('Error occurred', true);
+    
+    if (!res.headersSent) {
+      res.write(`data: ${JSON.stringify({ 
+        type: 'error',
+        sessionId: sessionId,
+        error: error.message 
+      })}\n\n`);
+    }
+    
+    if (!res.destroyed) {
+      res.end();
+    }
+  }
+};
+
+// NEW: Process selected images endpoint - FIXED to handle page numbers
+exports.processSelectedImages = async (req, res) => {
+  const { sessionId, selectedPageNumbers } = req.body;
+  const userId = req.user.id;
+  const userEmail = req.user.email;
+  
+  if (!sessionId || !selectedPageNumbers || !Array.isArray(selectedPageNumbers)) {
+    return res.status(400).json({ error: 'Session ID and selected page numbers required' });
+  }
+  
+  if (!sessionStore.validateUserSession(userId, sessionId)) {
+    return res.status(403).json({ error: 'Access denied: Invalid session' });
+  }
+  
+  const session = activeProcessingSessions.get(sessionId);
+  if (!session || session.userId !== userId) {
+    return res.status(404).json({ error: 'Session not found or access denied' });
+  }
+  
+  let shouldCancel = false;
+  
+  try {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+
+    console.log(`\nPHASE 2: Analyzing ${selectedPageNumbers.length} selected pages for user ${userEmail}...`);
+    console.log(`Selected pages: ${selectedPageNumbers.join(', ')}`);
     
     res.write(`data: ${JSON.stringify({ 
       type: 'status',
-      totalPages: pageCount,
+      totalPages: selectedPageNumbers.length,
       currentPage: 0,
       phase: 'analysis',
       sessionId: sessionId,
-      message: `Analyzing all ${pageCount} pages in parallel...` 
+      message: `Analyzing ${selectedPageNumbers.length} selected pages...` 
     })}\n\n`);
 
     const allPagesData = [];
@@ -195,10 +252,57 @@ exports.processPDF = async (req, res) => {
       equipmentLog: []
     };
 
-    const validImages = allImages.filter(img => img.base64 !== null);
+    // FIXED: Reconstruct image data for selected pages only
+    const tempImagesDir = path.join(__dirname, '..', 'temp_images');
+    const timestamp = sessionId.split('_')[2];
+    const userHash = crypto.createHash('sha256').update(userId).digest('hex').substring(0, 8);
+    const baseURL = getBaseURL();
+    
+    const selectedImages = [];
+    
+    for (const pageNumber of selectedPageNumbers) {
+      try {
+        // Find the image file for this page
+        const files = fs.readdirSync(tempImagesDir);
+        const imageFile = files.find(file => 
+          file.startsWith(`page_${pageNumber}_${userHash}_${timestamp}_`) && 
+          file.endsWith('.png')
+        );
+        
+        if (imageFile) {
+          const imagePath = path.join(tempImagesDir, imageFile);
+          const imageBuffer = fs.readFileSync(imagePath);
+          const base64 = imageBuffer.toString('base64');
+          
+          selectedImages.push({
+            pageNumber: pageNumber,
+            base64: `data:image/png;base64,${base64}`,
+            imageUrl: `${baseURL}/images/${imageFile}`
+          });
+        } else {
+          console.error(`Image file not found for page ${pageNumber}`);
+          selectedImages.push({
+            pageNumber: pageNumber,
+            base64: null,
+            imageUrl: null,
+            conversionError: 'Image file not found'
+          });
+        }
+      } catch (error) {
+        console.error(`Error loading image for page ${pageNumber}:`, error.message);
+        selectedImages.push({
+          pageNumber: pageNumber,
+          base64: null,
+          imageUrl: null,
+          conversionError: error.message
+        });
+      }
+    }
+
+    const validImages = selectedImages.filter(img => img.base64 !== null);
     
     if (validImages.length === 0) {
-      throw new Error('All pages failed to convert to images');
+      throw new Error('No valid images found for selected pages');
     }
 
     const analysisResults = await geminiService.analyzeImagesParallel(
@@ -225,13 +329,12 @@ exports.processPDF = async (req, res) => {
     );
 
     if (shouldCancel || req.aborted || res.destroyed) {
-      safeCleanup('Cancelled after analysis', true);
       return res.end();
     }
 
-    console.log(`\nPHASE 3: Processing all results in PARALLEL for user ${userEmail}...`);
+    console.log(`\nPHASE 3: Processing results for ${selectedImages.length} pages...`);
     
-    const pageProcessingPromises = allImages.map(async (imageInfo, index) => {
+    const pageProcessingPromises = selectedImages.map(async (imageInfo, index) => {
       const pageNumber = imageInfo.pageNumber;
 
       if (imageInfo.conversionError) {
@@ -243,7 +346,7 @@ exports.processPDF = async (req, res) => {
           },
           rawOutput: `Conversion Error: ${imageInfo.conversionError}`,
           imageUrl: null,
-          error: `Failed to convert page: ${imageInfo.conversionError}`
+          error: `Failed to load page: ${imageInfo.conversionError}`
         };
 
         if (!shouldCancel && !req.aborted && !res.destroyed) {
@@ -256,7 +359,7 @@ exports.processPDF = async (req, res) => {
               rawOutput: errorPageData.rawOutput,
               imageUrl: errorPageData.imageUrl,
               error: errorPageData.error,
-              message: `Page ${pageNumber} failed (conversion error)` 
+              message: `Page ${pageNumber} failed (load error)` 
             })}\n\n`);
           } catch (writeError) {
             shouldCancel = true;
@@ -326,13 +429,11 @@ exports.processPDF = async (req, res) => {
     });
     
     if (shouldCancel || req.aborted || res.destroyed) {
-      safeCleanup('Cancelled before completion', true);
       return res.end();
     }
     
-    safeCleanup('Processing completed successfully', true);
-    
     console.log(`\nPROCESSING COMPLETE for user ${userEmail}`);
+    console.log(`Selected pages processed: ${selectedPageNumbers.length}`);
     console.log(`Labour items: ${collectedResult.labour.length}`);
     console.log(`Labour Timesheet items: ${collectedResult.labourTimesheet.length}`);
     console.log(`Material items: ${collectedResult.material.length}`);
@@ -346,18 +447,16 @@ exports.processPDF = async (req, res) => {
       sessionId: sessionId,
       allPagesData: allPagesData,
       collectedResult: collectedResult,
-      totalPages: pageCount,
+      totalPages: selectedPageNumbers.length,
       processedBy: userEmail,
       processedAt: new Date().toISOString(),
-      message: 'All pages processed successfully!' 
+      message: 'Selected pages processed successfully!' 
     })}\n\n`);
 
     res.end();
     
   } catch (error) {
-    console.error(`\nPROCESSING ERROR for user ${userEmail}:`, error);
-    
-    safeCleanup('Error occurred', true);
+    console.error(`\nSELECTED PROCESSING ERROR for user ${userEmail}:`, error);
     
     if (!res.headersSent) {
       res.write(`data: ${JSON.stringify({ 
