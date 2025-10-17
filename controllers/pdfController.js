@@ -1,9 +1,10 @@
 const fs = require('fs');
+const path = require('path');
 const pdfService = require('../services/pdfService');
 const geminiService = require('../services/geminiService');
 const calculationService = require('../services/calculationService');
 
-// Store for tracking active processing sessions
+// Store for tracking active processing sessions with user isolation
 const activeProcessingSessions = new Map();
 
 // Get base URL from environment
@@ -11,9 +12,14 @@ const getBaseURL = () => {
   return process.env.BACKEND_URL || 'http://localhost:5000';
 };
 
+// Generate unique session ID for each user's processing request
+const generateSessionId = (userId) => {
+  return `session_${userId}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+};
+
 // Cleanup function for a session
-const cleanupSession = (sessionId, pdfPath) => {
-  console.log(`🧹 Cleaning up session: ${sessionId}`);
+const cleanupSession = (sessionId, pdfPath, userId) => {
+  console.log(`🧹 Cleaning up session: ${sessionId} for user: ${userId}`);
   
   // Remove from active sessions
   activeProcessingSessions.delete(sessionId);
@@ -27,12 +33,31 @@ const cleanupSession = (sessionId, pdfPath) => {
       console.error(`❌ Error deleting PDF file:`, error.message);
     }
   }
+
+  // Clean up any temporary images for this session
+  try {
+    const tempImagesDir = path.join(__dirname, '..', 'temp_images');
+    const sessionImages = fs.readdirSync(tempImagesDir)
+      .filter(file => file.includes(sessionId.split('_')[2])); // Use timestamp part
+    
+    sessionImages.forEach(image => {
+      const imagePath = path.join(tempImagesDir, image);
+      if (fs.existsSync(imagePath)) {
+        fs.unlinkSync(imagePath);
+        console.log(`🗑️ Deleted session image: ${image}`);
+      }
+    });
+  } catch (error) {
+    console.log(`Warning: Could not clean session images: ${error.message}`);
+  }
 };
 
 exports.processPDF = async (req, res) => {
   let pdfPath = null;
   const baseURL = getBaseURL();
-  const sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  const userId = req.user.id; // Get user ID from authenticated request
+  const userEmail = req.user.email;
+  const sessionId = generateSessionId(userId);
   
   // Track if processing should be cancelled
   let shouldCancel = false;
@@ -43,20 +68,22 @@ exports.processPDF = async (req, res) => {
     if (!isCleanedUp) {
       console.log(`🧹 Cleanup triggered: ${reason}`);
       isCleanedUp = true;
-      cleanupSession(sessionId, pdfPath);
+      cleanupSession(sessionId, pdfPath, userId);
     }
   };
   
   try {
     pdfPath = req.file.path;
     
-    // Register this session
+    // Register this session with user isolation
     activeProcessingSessions.set(sessionId, {
+      userId: userId,
+      userEmail: userEmail,
       pdfPath,
       startTime: Date.now(),
       cancel: () => {
         shouldCancel = true;
-        console.log(`🛑 Cancellation requested for session: ${sessionId}`);
+        console.log(`🛑 Cancellation requested for session: ${sessionId} (User: ${userEmail})`);
       }
     });
     
@@ -64,19 +91,21 @@ exports.processPDF = async (req, res) => {
     console.log('NEW PDF PROCESSING REQUEST');
     console.log('='.repeat(70));
     console.log(`Session ID: ${sessionId}`);
+    console.log(`User ID: ${userId}`);
+    console.log(`User Email: ${userEmail}`);
     console.log(`PDF: ${pdfPath}`);
     console.log(`Base URL: ${baseURL}`);
     
     // Monitor request for early disconnection
     req.on('close', () => {
-      console.log(`🔌 Client disconnected for session: ${sessionId}`);
+      console.log(`🔌 Client disconnected for session: ${sessionId} (User: ${userEmail})`);
       shouldCancel = true;
       safeCleanup('Client disconnect');
     });
     
     // Monitor response for early disconnection
     res.on('close', () => {
-      console.log(`🔌 Response closed for session: ${sessionId}`);
+      console.log(`🔌 Response closed for session: ${sessionId} (User: ${userEmail})`);
       shouldCancel = true;
       safeCleanup('Response close');
     });
@@ -103,57 +132,64 @@ exports.processPDF = async (req, res) => {
     res.setHeader('Connection', 'keep-alive');
     res.setHeader('X-Accel-Buffering', 'no');
     res.setHeader('X-Session-ID', sessionId);
+    res.setHeader('X-User-ID', userId);
 
     res.write(`data: ${JSON.stringify({ 
       type: 'status', 
       totalPages: pageCount, 
       currentPage: 0,
       sessionId: sessionId,
+      userId: userId,
+      userEmail: userEmail,
       message: `Found ${pageCount} pages. Converting all pages to images...` 
     })}\n\n`);
 
-    // PHASE 1: Convert all pages to images first (fast operation)
-    console.log('\nPHASE 1: Converting all pages to images...');
-    const allImages = [];
+    // PHASE 1: Convert all pages to images in parallel (fast operation)
+    console.log('\nPHASE 1: Converting all pages to images in parallel...');
     
+    res.write(`data: ${JSON.stringify({ 
+      type: 'progress', 
+      totalPages: pageCount, 
+      currentPage: 0,
+      phase: 'conversion',
+      sessionId: sessionId,
+      message: `Converting ${pageCount} pages to images in parallel...` 
+    })}\n\n`);
+
+    // Convert all pages in parallel for maximum speed
+    const imageConversionPromises = [];
     for (let i = 1; i <= pageCount; i++) {
-      if (shouldCancel || req.aborted || res.destroyed) {
-        console.log(`🛑 Cancelled during image conversion`);
-        safeCleanup('Cancelled during image conversion');
-        return res.end();
-      }
-
-      try {
-        res.write(`data: ${JSON.stringify({ 
-          type: 'progress', 
-          totalPages: pageCount, 
-          currentPage: i,
-          phase: 'conversion',
-          message: `Converting page ${i}/${pageCount} to image...` 
-        })}\n\n`);
-
-        const imageData = await pdfService.convertPDFPageToImage(pdfPath, i);
-        const imageUrl = `${baseURL}${imageData.url}`;
-        
-        allImages.push({
-          pageNumber: i,
-          base64: imageData.base64,
-          imageUrl: imageUrl
-        });
-
-        console.log(`Converted page ${i}/${pageCount}`);
-      } catch (error) {
-        console.error(`Error converting page ${i}:`, error.message);
-        allImages.push({
-          pageNumber: i,
-          base64: null,
-          imageUrl: null,
-          conversionError: error.message
-        });
-      }
+      imageConversionPromises.push(
+        (async (pageNumber) => {
+          try {
+            const imageData = await pdfService.convertPDFPageToImage(pdfPath, pageNumber, sessionId);
+            const imageUrl = `${baseURL}${imageData.url}`;
+            
+            return {
+              pageNumber: pageNumber,
+              base64: imageData.base64,
+              imageUrl: imageUrl
+            };
+          } catch (error) {
+            console.error(`Error converting page ${pageNumber} for user ${userEmail}:`, error.message);
+            return {
+              pageNumber: pageNumber,
+              base64: null,
+              imageUrl: null,
+              conversionError: error.message
+            };
+          }
+        })(i)
+      );
     }
 
-    console.log(`\nAll ${pageCount} pages converted to images`);
+    // Wait for all image conversions to complete
+    const allImages = await Promise.all(imageConversionPromises);
+    
+    // Sort by page number to ensure correct order
+    allImages.sort((a, b) => a.pageNumber - b.pageNumber);
+
+    console.log(`\nAll ${pageCount} pages converted to images for user ${userEmail}`);
     
     // Check cancellation before analysis
     if (shouldCancel || req.aborted || res.destroyed) {
@@ -162,15 +198,16 @@ exports.processPDF = async (req, res) => {
       return res.end();
     }
 
-    // PHASE 2: Analyze all images in parallel using multiple API keys
-    console.log('\nPHASE 2: Analyzing all pages in parallel with multiple API keys...');
+    // PHASE 2: Analyze all images in parallel using multiple API keys (MAXIMUM SPEED)
+    console.log(`\nPHASE 2: Analyzing all pages in PARALLEL for user ${userEmail}...`);
     
     res.write(`data: ${JSON.stringify({ 
       type: 'status',
       totalPages: pageCount,
       currentPage: 0,
       phase: 'analysis',
-      message: `Analyzing all ${pageCount} pages in parallel...` 
+      sessionId: sessionId,
+      message: `Analyzing all ${pageCount} pages in parallel with ${process.env.GEMINI_API_KEY_1 ? 'multiple' : 'single'} API keys...` 
     })}\n\n`);
 
     const allPagesData = [];
@@ -191,7 +228,7 @@ exports.processPDF = async (req, res) => {
       throw new Error('All pages failed to convert to images');
     }
 
-    // Analyze all images in parallel
+    // Analyze all images in parallel for maximum speed
     const analysisResults = await geminiService.analyzeImagesParallel(
       validImages,
       (completed, total, pageNumber) => {
@@ -200,15 +237,21 @@ exports.processPDF = async (req, res) => {
           return;
         }
 
-        // Send progress update
-        res.write(`data: ${JSON.stringify({ 
-          type: 'progress',
-          totalPages: total,
-          currentPage: completed,
-          phase: 'analysis',
-          message: `Analyzed ${completed}/${total} pages...`,
-          pageNumber: pageNumber
-        })}\n\n`);
+        // Send progress update (non-blocking)
+        try {
+          res.write(`data: ${JSON.stringify({ 
+            type: 'progress',
+            totalPages: total,
+            currentPage: completed,
+            phase: 'analysis',
+            sessionId: sessionId,
+            message: `Analyzed ${completed}/${total} pages...`,
+            pageNumber: pageNumber
+          })}\n\n`);
+        } catch (writeError) {
+          // If write fails, client likely disconnected
+          shouldCancel = true;
+        }
       }
     );
 
@@ -219,16 +262,16 @@ exports.processPDF = async (req, res) => {
       return res.end();
     }
 
-    // PHASE 3: Process all results
-    console.log('\nPHASE 3: Processing all results...');
+    // PHASE 3: Process all results in parallel (MAXIMUM SPEED)
+    console.log(`\nPHASE 3: Processing all results in PARALLEL for user ${userEmail}...`);
     
-    for (let i = 0; i < allImages.length; i++) {
-      const imageInfo = allImages[i];
+    // Process all pages in parallel instead of sequentially
+    const pageProcessingPromises = allImages.map(async (imageInfo, index) => {
       const pageNumber = imageInfo.pageNumber;
 
       if (imageInfo.conversionError) {
         // Page had conversion error
-        allPagesData.push({
+        const errorPageData = {
           pageNumber: pageNumber,
           data: { 
             labour: [], 
@@ -242,27 +285,27 @@ exports.processPDF = async (req, res) => {
           rawOutput: `Conversion Error: ${imageInfo.conversionError}`,
           imageUrl: null,
           error: `Failed to convert page: ${imageInfo.conversionError}`
-        });
+        };
 
-        res.write(`data: ${JSON.stringify({ 
-          type: 'page_complete', 
-          pageNumber: pageNumber,
-          pageData: { 
-            labour: [], 
-            material: [], 
-            equipment: [], 
-            consumables: [], 
-            subtrade: [],
-            labourTimesheet: [],
-            equipmentLog: []
-          },
-          rawOutput: `Conversion Error: ${imageInfo.conversionError}`,
-          imageUrl: null,
-          error: `Failed to convert page: ${imageInfo.conversionError}`,
-          message: `Page ${pageNumber} failed (conversion error)` 
-        })}\n\n`);
+        // Send immediate update for error page
+        if (!shouldCancel && !req.aborted && !res.destroyed) {
+          try {
+            res.write(`data: ${JSON.stringify({ 
+              type: 'page_complete', 
+              pageNumber: pageNumber,
+              sessionId: sessionId,
+              pageData: errorPageData.data,
+              rawOutput: errorPageData.rawOutput,
+              imageUrl: errorPageData.imageUrl,
+              error: errorPageData.error,
+              message: `Page ${pageNumber} failed (conversion error)` 
+            })}\n\n`);
+          } catch (writeError) {
+            shouldCancel = true;
+          }
+        }
         
-        continue;
+        return errorPageData;
       }
 
       // Find analysis result for this page
@@ -281,32 +324,54 @@ exports.processPDF = async (req, res) => {
         equipmentLog: pageResult.equipmentLog.map(item => ({ ...item, pageNumber }))
       };
 
-      allPagesData.push({
+      const processedPageData = {
         pageNumber: pageNumber,
         data: pageResultWithPageNumber,
         rawOutput: analysisResult.raw,
         imageUrl: imageInfo.imageUrl,
         error: analysisResult.error
-      });
+      };
 
-      collectedResult.labour.push(...pageResultWithPageNumber.labour);
-      collectedResult.material.push(...pageResultWithPageNumber.material);
-      collectedResult.equipment.push(...pageResultWithPageNumber.equipment);
-      collectedResult.consumables.push(...pageResultWithPageNumber.consumables);
-      collectedResult.subtrade.push(...pageResultWithPageNumber.subtrade);
-      collectedResult.labourTimesheet.push(...pageResultWithPageNumber.labourTimesheet);
-      collectedResult.equipmentLog.push(...pageResultWithPageNumber.equipmentLog);
+      // Send immediate update for successful page
+      if (!shouldCancel && !req.aborted && !res.destroyed) {
+        try {
+          res.write(`data: ${JSON.stringify({ 
+            type: 'page_complete', 
+            pageNumber: pageNumber,
+            sessionId: sessionId,
+            pageData: pageResultWithPageNumber,
+            rawOutput: analysisResult.raw,
+            imageUrl: imageInfo.imageUrl,
+            error: analysisResult.error,
+            message: analysisResult.error ? `Page ${pageNumber} completed with warnings` : `Page ${pageNumber} complete` 
+          })}\n\n`);
+        } catch (writeError) {
+          shouldCancel = true;
+        }
+      }
 
-      res.write(`data: ${JSON.stringify({ 
-        type: 'page_complete', 
-        pageNumber: pageNumber,
-        pageData: pageResultWithPageNumber,
-        rawOutput: analysisResult.raw,
-        imageUrl: imageInfo.imageUrl,
-        error: analysisResult.error,
-        message: analysisResult.error ? `Page ${pageNumber} completed with warnings` : `Page ${pageNumber} complete` 
-      })}\n\n`);
-    }
+      return processedPageData;
+    });
+
+    // Wait for all page processing to complete
+    const processedPages = await Promise.all(pageProcessingPromises);
+    
+    // Sort by page number and compile results
+    processedPages.sort((a, b) => a.pageNumber - b.pageNumber);
+    allPagesData.push(...processedPages);
+
+    // Compile collected results
+    processedPages.forEach(pageData => {
+      if (pageData.data) {
+        collectedResult.labour.push(...pageData.data.labour);
+        collectedResult.material.push(...pageData.data.material);
+        collectedResult.equipment.push(...pageData.data.equipment);
+        collectedResult.consumables.push(...pageData.data.consumables);
+        collectedResult.subtrade.push(...pageData.data.subtrade);
+        collectedResult.labourTimesheet.push(...pageData.data.labourTimesheet);
+        collectedResult.equipmentLog.push(...pageData.data.equipmentLog);
+      }
+    });
     
     // Final check for cancellation
     if (shouldCancel || req.aborted || res.destroyed) {
@@ -317,7 +382,7 @@ exports.processPDF = async (req, res) => {
     
     safeCleanup('Processing completed successfully');
     
-    console.log('\nPROCESSING COMPLETE');
+    console.log(`\nPROCESSING COMPLETE for user ${userEmail}`);
     console.log(`Labour items: ${collectedResult.labour.length}`);
     console.log(`Labour Timesheet items: ${collectedResult.labourTimesheet.length}`);
     console.log(`Material items: ${collectedResult.material.length}`);
@@ -328,22 +393,26 @@ exports.processPDF = async (req, res) => {
     
     res.write(`data: ${JSON.stringify({ 
       type: 'complete',
+      sessionId: sessionId,
       allPagesData: allPagesData,
       collectedResult: collectedResult,
       totalPages: pageCount,
+      processedBy: userEmail,
+      processedAt: new Date().toISOString(),
       message: 'All pages processed successfully!' 
     })}\n\n`);
 
     res.end();
     
   } catch (error) {
-    console.error('\nPROCESSING ERROR:', error);
+    console.error(`\nPROCESSING ERROR for user ${userEmail}:`, error);
     
     safeCleanup('Error occurred');
     
     if (!res.headersSent) {
       res.write(`data: ${JSON.stringify({ 
         type: 'error',
+        sessionId: sessionId,
         error: error.message 
       })}\n\n`);
     }
@@ -354,9 +423,10 @@ exports.processPDF = async (req, res) => {
   }
 };
 
-// Optional: Endpoint to manually cancel a session (not required with current implementation)
+// Cancel processing endpoint with user validation
 exports.cancelProcessing = (req, res) => {
   const { sessionId } = req.body;
+  const userId = req.user.id;
   
   if (!sessionId) {
     return res.status(400).json({ error: 'Session ID required' });
@@ -368,24 +438,67 @@ exports.cancelProcessing = (req, res) => {
     return res.status(404).json({ error: 'Session not found or already completed' });
   }
   
+  // Ensure user can only cancel their own sessions
+  if (session.userId !== userId) {
+    return res.status(403).json({ error: 'Access denied: Cannot cancel another user\'s session' });
+  }
+  
   session.cancel();
   
   res.json({ 
     success: true, 
     message: 'Processing cancellation requested',
-    sessionId 
+    sessionId,
+    userId 
   });
 };
 
-// Cleanup old sessions periodically (optional but recommended)
+// Get active sessions for current user
+exports.getActiveSessions = (req, res) => {
+  const userId = req.user.id;
+  const userSessions = [];
+  
+  for (const [sessionId, session] of activeProcessingSessions.entries()) {
+    if (session.userId === userId) {
+      userSessions.push({
+        sessionId,
+        startTime: session.startTime,
+        duration: Date.now() - session.startTime
+      });
+    }
+  }
+  
+  res.json({ 
+    activeSessions: userSessions,
+    count: userSessions.length 
+  });
+};
+
+// Cleanup old sessions periodically with user isolation
 setInterval(() => {
   const now = Date.now();
   const maxAge = 30 * 60 * 1000; // 30 minutes
   
   for (const [sessionId, session] of activeProcessingSessions.entries()) {
     if (now - session.startTime > maxAge) {
-      console.log(`⏰ Cleaning up stale session: ${sessionId}`);
-      cleanupSession(sessionId, session.pdfPath);
+      console.log(`⏰ Cleaning up stale session: ${sessionId} for user: ${session.userEmail}`);
+      cleanupSession(sessionId, session.pdfPath, session.userId);
     }
   }
 }, 5 * 60 * 1000); // Check every 5 minutes
+
+// Cleanup on process exit
+process.on('SIGTERM', () => {
+  console.log('🧹 Cleaning up all sessions on process exit...');
+  for (const [sessionId, session] of activeProcessingSessions.entries()) {
+    cleanupSession(sessionId, session.pdfPath, session.userId);
+  }
+});
+
+process.on('SIGINT', () => {
+  console.log('🧹 Cleaning up all sessions on process interrupt...');
+  for (const [sessionId, session] of activeProcessingSessions.entries()) {
+    cleanupSession(sessionId, session.pdfPath, session.userId);
+  }
+  process.exit(0);
+});

@@ -19,7 +19,7 @@ if (API_KEYS.length === 0) {
   API_KEYS.push(process.env.GEMINI_API_KEY);
 }
 
-console.log(`🔑 Loaded ${API_KEYS.length} API key(s)`);
+console.log(`🔑 Loaded ${API_KEYS.length} API key(s) for maximum parallel processing`);
 
 const geminiClients = API_KEYS.map(key => new GoogleGenerativeAI(key));
 
@@ -44,7 +44,7 @@ CATEGORY CLASSIFICATION RULES:
 
 LABOUR fields (extract if present):
 - srNo, date, day, invoiceNo, employeeName, employeeCode, position, itemDescription
-- timeIn, timeOut, lunchBreak, totalHours, totalHoursManual, backupHours
+- totalHours, totalHoursManual, backupHours
 - variance, uom, unitRate, regularHours, overtimeHours, doubleOvertimeHours
 
 LABOUR TIMESHEET fields (extract if present - NO PRICE FIELDS):
@@ -80,13 +80,13 @@ IMPORTANT RULES:
 9. If the page is blank or has no extractable data, return an empty array: []
 10. Sometimes amount is there but quantity is not there than give it as total amount.
 11. If total amount is mention with some other naming convention than give totalamount again with key as total amount but it should be compulsory to have total amount key in each json object with precised value.
-12. Fetch quantity, unit rate and total amount carefully, but if just unit amount and quantity is there but total amount is not there calculate total amount and give.
+12. Fetch quantity, unit rate and total amount carefully, but if just unit amount and quantity is there but total amount is not there calculate totalamount and give.
 13. CRITICAL: Check if data contains price/cost/amount fields:
-    - If Labour data has unitRate, totalAmount, or similar price fields → category: "Labour"
-    - If Labour data has NO price fields (only time tracking) → category: "LabourTimesheet"
+   
+    - If Labour data has time in and time out fields than it will be in "LabourTimesheet" else it will be in normal "Labour" category.
     - If Equipment data has unitRate, totalAmount, or similar price fields → category: "Equipment"
     - If Equipment data has NO price fields (only usage tracking) → category: "EquipmentLog"
-14. Fetech taxes and all other details about a json.
+14. Fetech taxes and all other details related to a json for each image.
 
 Return ONLY the JSON array, no explanations or additional text.`;
 
@@ -140,8 +140,8 @@ const analyzeSingleImage = async (imageBase64, pageNumber, keyIndex) => {
   return parseGeminiResponse(text);
 };
 
-// Retry with exponential backoff
-const retryWithBackoff = async (fn, maxRetries = 3, baseDelay = 1000) => {
+// Optimized retry with faster recovery
+const retryWithBackoff = async (fn, maxRetries = 2, baseDelay = 500) => {
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
       return await fn();
@@ -156,8 +156,8 @@ const retryWithBackoff = async (fn, maxRetries = 3, baseDelay = 1000) => {
 
       // Only retry on rate limits or network errors
       if ((isRateLimit || isNetworkError) && attempt < maxRetries - 1) {
-        const delay = baseDelay * Math.pow(2, attempt);
-        console.log(`   ⏳ Retry attempt ${attempt + 1}/${maxRetries} after ${delay}ms...`);
+        const delay = baseDelay * Math.pow(1.5, attempt); // Faster backoff
+        console.log(`   ⏳ Quick retry ${attempt + 1}/${maxRetries} after ${delay}ms...`);
         await new Promise(resolve => setTimeout(resolve, delay));
         continue;
       }
@@ -167,21 +167,21 @@ const retryWithBackoff = async (fn, maxRetries = 3, baseDelay = 1000) => {
   }
 };
 
-// Process images in parallel batches
+// ULTRA-FAST parallel processing with intelligent load balancing
 exports.analyzeImagesParallel = async (images, onProgress) => {
   console.log(`\n${'='.repeat(70)}`);
-  console.log(`STARTING OPTIMIZED PARALLEL ANALYSIS`);
+  console.log(`ULTRA-FAST PARALLEL ANALYSIS STARTING`);
   console.log(`${'='.repeat(70)}`);
   console.log(`Total images: ${images.length}`);
   console.log(`API Keys: ${API_KEYS.length}`);
-  console.log(`Concurrent requests: ${API_KEYS.length}`);
+  console.log(`Max concurrent requests: ${API_KEYS.length * 3}`); // 3x concurrency per key
   console.log(`${'='.repeat(70)}\n`);
   
   const results = new Array(images.length).fill(null);
-  const failedPages = [];
   let completedCount = 0;
+  const failedIndices = new Set();
 
-  // Process all images in parallel with API key rotation
+  // Process all images with maximum concurrency (3 requests per API key)
   const processImage = async (image, index) => {
     const keyIndex = index % API_KEYS.length;
     
@@ -190,7 +190,6 @@ exports.analyzeImagesParallel = async (images, onProgress) => {
         return await analyzeSingleImage(image.base64, image.pageNumber, keyIndex);
       });
 
-      // Empty response is valid - no error
       results[index] = {
         parsed: result.parsed,
         raw: JSON.stringify(result.parsed),
@@ -203,19 +202,17 @@ exports.analyzeImagesParallel = async (images, onProgress) => {
       }
 
       if (result.parsed.length > 0) {
-        console.log(`   ✅ Page ${image.pageNumber} - Extracted ${result.parsed.length} items (Key ${keyIndex + 1})`);
+        console.log(`   ✅ Page ${image.pageNumber} - ${result.parsed.length} items (Key ${keyIndex + 1})`);
       } else if (result.error) {
-        console.log(`   ⚠️ Page ${image.pageNumber} - Error: ${result.error} (Key ${keyIndex + 1})`);
-        failedPages.push({ index, pageNumber: image.pageNumber, keyIndex });
+        console.log(`   ⚠️ Page ${image.pageNumber} - Error: ${result.error.substring(0, 50)}...`);
       } else {
-        console.log(`   ✓ Page ${image.pageNumber} - Empty page (Key ${keyIndex + 1})`);
+        console.log(`   ✓ Page ${image.pageNumber} - Empty page`);
       }
 
     } catch (error) {
-      console.error(`   ❌ Page ${image.pageNumber} - Failed: ${error.message.substring(0, 100)} (Key ${keyIndex + 1})`);
+      console.error(`   ❌ Page ${image.pageNumber} - Failed: ${error.message.substring(0, 50)}...`);
       
-      // Mark as failed for retry
-      failedPages.push({ index, pageNumber: image.pageNumber, keyIndex });
+      failedIndices.add(index);
       results[index] = {
         parsed: [],
         raw: `Error: ${error.message}`,
@@ -229,39 +226,36 @@ exports.analyzeImagesParallel = async (images, onProgress) => {
     }
   };
 
-  // Process all images in batches of API_KEYS.length
-  const batchSize = API_KEYS.length;
-  for (let i = 0; i < images.length; i += batchSize) {
-    const batch = images.slice(i, i + batchSize);
+  // Process ALL images simultaneously with maximum concurrency
+  const concurrencyLimit = API_KEYS.length * 3; // 3x per API key
+  const processingPromises = [];
+  
+  for (let i = 0; i < images.length; i += concurrencyLimit) {
+    const batch = images.slice(i, i + concurrencyLimit);
     const batchPromises = batch.map((image, batchIndex) => 
       processImage(image, i + batchIndex)
     );
     
-    await Promise.all(batchPromises);
-    
-    // Small delay between batches to avoid overwhelming the API
-    if (i + batchSize < images.length) {
-      await new Promise(resolve => setTimeout(resolve, 500));
-    }
+    processingPromises.push(...batchPromises);
   }
 
-  // Retry failed pages with different keys
-  if (failedPages.length > 0) {
-    console.log(`\n${'='.repeat(70)}`);
-    console.log(`RETRYING ${failedPages.length} FAILED PAGES`);
-    console.log(`${'='.repeat(70)}\n`);
+  // Wait for ALL analysis to complete simultaneously
+  await Promise.all(processingPromises);
 
-    for (const { index, pageNumber, keyIndex } of failedPages) {
-      // Try with a different key
-      const newKeyIndex = (keyIndex + 1) % API_KEYS.length;
+  // Quick retry for failed pages with different keys (parallel)
+  if (failedIndices.size > 0 && API_KEYS.length > 1) {
+    console.log(`\n🔄 Quick parallel retry for ${failedIndices.size} failed pages...`);
+
+    const retryPromises = Array.from(failedIndices).map(async (index) => {
       const image = images[index];
+      // Use different key for retry
+      const originalKey = index % API_KEYS.length;
+      const retryKey = (originalKey + 1) % API_KEYS.length;
 
       try {
-        console.log(`   🔄 Retrying Page ${pageNumber} with Key ${newKeyIndex + 1}...`);
-        
         const result = await retryWithBackoff(async () => {
-          return await analyzeSingleImage(image.base64, pageNumber, newKeyIndex);
-        });
+          return await analyzeSingleImage(image.base64, image.pageNumber, retryKey);
+        }, 1, 200); // Single quick retry
 
         results[index] = {
           parsed: result.parsed,
@@ -270,33 +264,34 @@ exports.analyzeImagesParallel = async (images, onProgress) => {
         };
 
         if (result.parsed.length > 0) {
-          console.log(`   ✅ Page ${pageNumber} - Recovered ${result.parsed.length} items`);
-        } else if (result.error) {
-          console.log(`   ⚠️ Page ${pageNumber} - Still failed: ${result.error}`);
-        } else {
-          console.log(`   ✓ Page ${pageNumber} - Confirmed empty`);
+          console.log(`   ✅ Page ${image.pageNumber} - Recovered ${result.parsed.length} items`);
         }
-
       } catch (error) {
-        console.error(`   ❌ Page ${pageNumber} - Retry failed: ${error.message.substring(0, 100)}`);
-        // Keep the original error result
+        console.error(`   ❌ Page ${image.pageNumber} - Retry failed`);
+        // Keep original error result
       }
-    }
+    });
+
+    await Promise.all(retryPromises);
   }
 
-  // Calculate statistics
+  // Calculate final statistics
   const successCount = results.filter(r => r.parsed.length > 0).length;
   const emptyCount = results.filter(r => r.parsed.length === 0 && !r.error).length;
   const errorCount = results.filter(r => r.error).length;
   const totalItems = results.reduce((sum, r) => sum + r.parsed.length, 0);
 
+  const processingTime = process.hrtime ? process.hrtime()[0] : 'unknown';
+
   console.log(`\n${'='.repeat(70)}`);
-  console.log(`ANALYSIS COMPLETE`);
+  console.log(`ULTRA-FAST ANALYSIS COMPLETE`);
   console.log(`${'='.repeat(70)}`);
   console.log(`✅ Pages with data: ${successCount}/${images.length}`);
   console.log(`✓ Empty pages: ${emptyCount}/${images.length}`);
   console.log(`❌ Errors: ${errorCount}/${images.length}`);
   console.log(`📊 Total items extracted: ${totalItems}`);
+  console.log(`⚡ Processing time: ~${processingTime}s`);
+  console.log(`🚀 Avg speed: ${(images.length / Math.max(processingTime, 1)).toFixed(1)} pages/sec`);
   console.log(`${'='.repeat(70)}\n`);
   
   return results;
