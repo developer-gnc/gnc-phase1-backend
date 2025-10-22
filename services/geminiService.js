@@ -89,7 +89,7 @@ IMPORTANT RULES:
 14. Fetch taxes and all other details related to a json for each image.
 15. If there is any heading like summary or recap above a table or rows of data in image than do not consider data below that heading into json.
 16. CRITICAL: ALL FIELD NAMES IN THE DATA OBJECT MUST BE IN CAPITAL LETTERS (e.g., EMPLOYEENAME, TOTALAMOUNT, UNITRATE)
-
+17. if there a heading on table or category above rows of data and it look like a category than add it as sub category in data json for these rows.
 Return ONLY the JSON array, no explanations or additional text.`;
 
 // Parse Gemini response with robust error handling
