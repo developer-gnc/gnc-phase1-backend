@@ -15,6 +15,7 @@ exports.processPageData = (extractedData) => {
       const category = item.category?.toLowerCase();
       
       // Just pass through the data without any calculations
+      // Data will have CAPITAL field names as returned by Gemini
       if (category === 'labour') {
         pageResult.labour.push(item.data);
       } else if (category === 'material') {
