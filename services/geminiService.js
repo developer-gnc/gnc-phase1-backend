@@ -90,6 +90,8 @@ IMPORTANT RULES:
 15. If there is any heading like summary or recap above a table or rows of data in image than do not consider data below that heading into json.
 16. CRITICAL: ALL FIELD NAMES IN THE DATA OBJECT MUST BE IN CAPITAL LETTERS (e.g., EMPLOYEENAME, TOTALAMOUNT, UNITRATE)
 17. if there a heading on table or category above rows of data and it look like a category than add it as sub category in data json for these rows.
+18. Format for all type the date should be DD-MM-YYYY.
+19. if there ther any invoice date and invoice number is there on image include that in every data json object but not as a separate object.
 Return ONLY the JSON array, no explanations or additional text.`;
 
 // Parse Gemini response with robust error handling
