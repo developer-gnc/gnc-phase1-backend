@@ -76,7 +76,7 @@ IMPORTANT RULES:
 4. If multiple items are present, return multiple objects in the array
 5. Use exact field names as specified above (ALL CAPITAL LETTERS)
 6. For numeric values, extract as numbers not strings
-7. For dates, use format: YYYY-MM-DD or as shown in document
+7. For dates, use format: DD/MM/YYYY 
 8. For time fields, use format: HH:MM or as shown in document
 9. If the page is blank or has no extractable data, return an empty array: []
 10. Sometimes amount is there but quantity is not there than give it as TOTALAMOUNT.
@@ -89,8 +89,8 @@ IMPORTANT RULES:
 14. Fetch taxes and all other details related to a json for each image.
 15. If there is any heading like summary or recap above a table or rows of data in image than do not consider data below that heading into json.
 16. CRITICAL: ALL FIELD NAMES IN THE DATA OBJECT MUST BE IN CAPITAL LETTERS (e.g., EMPLOYEENAME, TOTALAMOUNT, UNITRATE)
-17. if there a heading on table or category above rows of data and it look like a category than add it as sub category in data json for these rows.
-18. Format for all type the date should be DD-MM-YYYY.
+17. if there a heading on table or category above rows of data and it look like a category than add it as sub category in data json for these rows, and key field for these values should be subcategory not category.
+18. Format for all type the date should be DD/MM/YYYY.
 19. if there ther any invoice date and invoice number is there on image include that in every data json object but not as a separate object.
 Return ONLY the JSON array, no explanations or additional text.`;
 
