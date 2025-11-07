@@ -44,9 +44,9 @@ CATEGORY CLASSIFICATION RULES:
 - EquipmentLog: Use when equipment data does NOT contain any price/cost/amount fields (just usage tracking)
 
 LABOUR fields (extract if present - ALL FIELD NAMES MUST BE CAPITAL):
-- SRNO, DATE, DAY, INVOICENO, EMPLOYEENAME, EMPLOYEECODE, POSITION, ITEMDESCRIPTION, SUBCATEGORY, AREA
+- SRNO, DATE, DAY, INVOICENO, EMPLOYEENAME, EMPLOYEECODE, POSITION, ITEMDESCRIPTION, SUBCATEGORY, AREA, INVOICE DATE
 - TOTALHOURS, TOTALHOURSMANUAL, BACKUPHOURS
-- VARIANCE, UOM, UNITRATE, REGULARHOURS, OVERTIMEHOURS, DOUBLEOVERTIMEHOURS, TOTALAMOUNT, O&P, REMOVE, REPLACE
+- VARIANCE, UOM, UNITRATE, REGULARHOURS, OVERTIMEHOURS, DOUBLEOVERTIMEHOURS, TOTALAMOUNT, O&P, REMOVE, REPLACE, SUBTOTAL
 
 LABOUR TIMESHEET fields (extract if present - NO PRICE FIELDS - ALL FIELD NAMES MUST BE CAPITAL):
 - SRNO, DATE, DAY, EMPLOYEENAME, EMPLOYEECODE, POSITION, ITEMDESCRIPTION, SUBCATEGORY, AREA
@@ -54,20 +54,20 @@ LABOUR TIMESHEET fields (extract if present - NO PRICE FIELDS - ALL FIELD NAMES 
 - VARIANCE, REGULARHOURS, OVERTIMEHOURS, DOUBLEOVERTIMEHOURS, 
 
 MATERIAL/CONSUMABLES fields (extract if present - ALL FIELD NAMES MUST BE CAPITAL):
-- SRNO, DATE, DAY, INVOICENO, ITEM, CATEGORY, ITEMDESCRIPTION, SUBCATEGORY, AREA
-- QTY, BACKUPQTY, VARIANCE, UOM, UNITRATE, TOTALAMOUNT, O&P, REMOVE, REPLACE, TAX
+- SRNO, DATE, DAY, INVOICENO, ITEM, CATEGORY, ITEMDESCRIPTION, SUBCATEGORY, AREA, INVOICE DATE
+- QTY, BACKUPQTY, VARIANCE, UOM, UNITRATE, TOTALAMOUNT, O&P, REMOVE, REPLACE, TAX, SUBTOTAL
 
 EQUIPMENT fields (extract if present - ALL FIELD NAMES MUST BE CAPITAL):
-- SRNO, DATE, DAY, INVOICENO, ITEM, CATEGORY, ITEMDESCRIPTION, , SUBCATEGORY
-- QTY, BACKUPQTY, VARIANCE, UOM, UNITRATE, TOTALAMOUNT, O&P, REMOVE, REPLACE, TAX
+- SRNO, DATE, DAY, INVOICENO, ITEM, CATEGORY, ITEMDESCRIPTION, SUBCATEGORY, INVOICE DATE
+- QTY, BACKUPQTY, VARIANCE, UOM, UNITRATE, TOTALAMOUNT, O&P, REMOVE, REPLACE, TAX, SUBTOTAL
 
 EQUIPMENT LOG fields (extract if present - NO PRICE FIELDS - ALL FIELD NAMES MUST BE CAPITAL):
-- SRNO, DATE, DAY, ITEM, CATEGORY, ITEMDESCRIPTION, OPERATORNAME, SUBCATEGORY, AREA
+- SRNO, DATE, DAY, ITEM, CATEGORY, ITEMDESCRIPTION, OPERATORNAME, SUBCATEGORY, AREA, INVOICE DATE
 - QTY, BACKUPQTY, VARIANCE, UOM, HOURSUSED, STARTTIME, ENDTIME
 
 SUBTRADE fields (extract if present - ALL FIELD NAMES MUST BE CAPITAL):
-- SRNO, DATE, DAY, INVOICENO, ITEM, CATEGORY, VENDORNAME, ITEMDESCRIPTION, SUBCATEGORY, AREA
-- QTY, BACKUPQTY, UOM, UNITRATE, TOTALAMOUNT, O&P, REMOVE, REPLACE, TAX
+- SRNO, DATE, DAY, INVOICENO, ITEM, CATEGORY, VENDORNAME, ITEMDESCRIPTION, SUBCATEGORY, AREA, INVOICE DATE
+- QTY, BACKUPQTY, UOM, UNITRATE, TOTALAMOUNT, O&P, REMOVE, REPLACE, TAX, SUBTOTAL
 
 IMPORTANT RULES:
 1. Extract ALL text visible in the image
@@ -91,10 +91,14 @@ IMPORTANT RULES:
 16. CRITICAL: ALL FIELD NAMES IN THE DATA OBJECT MUST BE IN CAPITAL LETTERS (e.g., EMPLOYEENAME, TOTALAMOUNT, UNITRATE)
 17. if there a heading on table or category above rows of data and it look like a category than add it as sub category in data json for these rows, and key field for these values should be subcategory not category.
 18. Format for all type the date should be DD/MM/YYYY.
-19. if there ther any invoice date and invoice number is there on image include that in every data json object but not as a separate object.
+19. if there are any invoice date and invoice number is there on image include that in every data json as INVOICE DATE and INVOICE NUMBER object but not as a separate object.
 20. If cheques are there in image, striclty do not consider them for data extraction.
 21. If any row contains REMOVE or REPLACE values, those values must be strictly extracted without omission. Ensure that whenever REMOVE and/or REPLACE columns appear for a row, their corresponding data is always captured completely and accurately. Under no circumstances should REMOVE or REPLACE values be skipped or missed for any row.
 22. AREA - If there is any area deatils and daigram with heading, add that heading as AREA for all json after that diagram and area details, but do not add area details.
+23. If a row appears multiple times, include it in JSON each time. Never skip or merge duplicates.
+24. If a date is linked to a row, use key DATE. If the date appears in the header or footer, use key INVOICE DATE. Include INVOICE DATE in every JSON row.
+25. Sometimes Description is in multiple lines, do not confused and count them as different rows.
+
 Return ONLY the JSON array, no explanations or additional text.`;
 
 // Parse Gemini response with robust error handling
