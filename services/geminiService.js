@@ -44,30 +44,30 @@ CATEGORY CLASSIFICATION RULES:
 - EquipmentLog: Use when equipment data does NOT contain any price/cost/amount fields (just usage tracking)
 
 LABOUR fields (extract if present - ALL FIELD NAMES MUST BE CAPITAL):
-- SRNO, DATE, DAY, INVOICENO, EMPLOYEENAME, EMPLOYEECODE, POSITION, ITEMDESCRIPTION
+- SRNO, DATE, DAY, INVOICENO, EMPLOYEENAME, EMPLOYEECODE, POSITION, ITEMDESCRIPTION, SUBCATEGORY, AREA
 - TOTALHOURS, TOTALHOURSMANUAL, BACKUPHOURS
-- VARIANCE, UOM, UNITRATE, REGULARHOURS, OVERTIMEHOURS, DOUBLEOVERTIMEHOURS, TOTALAMOUNT
+- VARIANCE, UOM, UNITRATE, REGULARHOURS, OVERTIMEHOURS, DOUBLEOVERTIMEHOURS, TOTALAMOUNT, O&P, REMOVE, REPLACE
 
 LABOUR TIMESHEET fields (extract if present - NO PRICE FIELDS - ALL FIELD NAMES MUST BE CAPITAL):
-- SRNO, DATE, DAY, EMPLOYEENAME, EMPLOYEECODE, POSITION, ITEMDESCRIPTION
+- SRNO, DATE, DAY, EMPLOYEENAME, EMPLOYEECODE, POSITION, ITEMDESCRIPTION, SUBCATEGORY, AREA
 - TIMEIN, TIMEOUT, LUNCHBREAK, TOTALHOURS, TOTALHOURSMANUAL, BACKUPHOURS
-- VARIANCE, REGULARHOURS, OVERTIMEHOURS, DOUBLEOVERTIMEHOURS
+- VARIANCE, REGULARHOURS, OVERTIMEHOURS, DOUBLEOVERTIMEHOURS, 
 
 MATERIAL/CONSUMABLES fields (extract if present - ALL FIELD NAMES MUST BE CAPITAL):
-- SRNO, DATE, DAY, INVOICENO, ITEM, CATEGORY, ITEMDESCRIPTION
-- QTY, BACKUPQTY, VARIANCE, UOM, UNITRATE, TOTALAMOUNT
+- SRNO, DATE, DAY, INVOICENO, ITEM, CATEGORY, ITEMDESCRIPTION, SUBCATEGORY, AREA
+- QTY, BACKUPQTY, VARIANCE, UOM, UNITRATE, TOTALAMOUNT, O&P, REMOVE, REPLACE, TAX
 
 EQUIPMENT fields (extract if present - ALL FIELD NAMES MUST BE CAPITAL):
-- SRNO, DATE, DAY, INVOICENO, ITEM, CATEGORY, ITEMDESCRIPTION
-- QTY, BACKUPQTY, VARIANCE, UOM, UNITRATE, TOTALAMOUNT
+- SRNO, DATE, DAY, INVOICENO, ITEM, CATEGORY, ITEMDESCRIPTION, , SUBCATEGORY
+- QTY, BACKUPQTY, VARIANCE, UOM, UNITRATE, TOTALAMOUNT, O&P, REMOVE, REPLACE, TAX
 
 EQUIPMENT LOG fields (extract if present - NO PRICE FIELDS - ALL FIELD NAMES MUST BE CAPITAL):
-- SRNO, DATE, DAY, ITEM, CATEGORY, ITEMDESCRIPTION, OPERATORNAME
+- SRNO, DATE, DAY, ITEM, CATEGORY, ITEMDESCRIPTION, OPERATORNAME, SUBCATEGORY, AREA
 - QTY, BACKUPQTY, VARIANCE, UOM, HOURSUSED, STARTTIME, ENDTIME
 
 SUBTRADE fields (extract if present - ALL FIELD NAMES MUST BE CAPITAL):
-- SRNO, DATE, DAY, INVOICENO, ITEM, CATEGORY, VENDORNAME, ITEMDESCRIPTION
-- QTY, BACKUPQTY, UOM, UNITRATE, TOTALAMOUNT
+- SRNO, DATE, DAY, INVOICENO, ITEM, CATEGORY, VENDORNAME, ITEMDESCRIPTION, SUBCATEGORY, AREA
+- QTY, BACKUPQTY, UOM, UNITRATE, TOTALAMOUNT, O&P, REMOVE, REPLACE, TAX
 
 IMPORTANT RULES:
 1. Extract ALL text visible in the image
@@ -81,7 +81,7 @@ IMPORTANT RULES:
 9. If the page is blank or has no extractable data, return an empty array: []
 10. Sometimes amount is there but quantity is not there than give it as TOTALAMOUNT.
 11. If total amount is mention with some other naming convention than give TOTALAMOUNT again with key as TOTALAMOUNT but it should be compulsory to have TOTALAMOUNT key in each json object with precised value.
-12. Fetch quantity, unit rate and total amount carefully, but if just unit amount and quantity is there but total amount is not there calculate TOTALAMOUNT and give.
+12. Fetch quantity, unit rate and total amount carefully, but if just unit amount and quantity is there but total amount is not there calculate TOTALAMOUNT and give. But striclty do not calculate any other fields except TOTALAMOUNT.
 13. CRITICAL: Check if data contains price/cost/amount fields:
     - If Labour data has TIMEIN and TIMEOUT fields than it will be in "LabourTimesheet" else it will be in normal "Labour" category.
     - If Equipment data has UNITRATE, TOTALAMOUNT, or similar price fields → category: "Equipment"
@@ -93,6 +93,8 @@ IMPORTANT RULES:
 18. Format for all type the date should be DD/MM/YYYY.
 19. if there ther any invoice date and invoice number is there on image include that in every data json object but not as a separate object.
 20. If cheques are there in image, striclty do not consider them for data extraction.
+21. If any row contains REMOVE or REPLACE values, those values must be strictly extracted without omission. Ensure that whenever REMOVE and/or REPLACE columns appear for a row, their corresponding data is always captured completely and accurately. Under no circumstances should REMOVE or REPLACE values be skipped or missed for any row.
+22. AREA - If there is any area deatils and daigram with heading, add that heading as AREA for all json after that diagram and area details, but do not add area details.
 Return ONLY the JSON array, no explanations or additional text.`;
 
 // Parse Gemini response with robust error handling
