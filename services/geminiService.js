@@ -92,6 +92,7 @@ IMPORTANT RULES:
 17. if there a heading on table or category above rows of data and it look like a category than add it as sub category in data json for these rows, and key field for these values should be subcategory not category.
 18. Format for all type the date should be DD/MM/YYYY.
 19. if there ther any invoice date and invoice number is there on image include that in every data json object but not as a separate object.
+20. If cheques are there in image, striclty do not consider them for data extraction.
 Return ONLY the JSON array, no explanations or additional text.`;
 
 // Parse Gemini response with robust error handling
