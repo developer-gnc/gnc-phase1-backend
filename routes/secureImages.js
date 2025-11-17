@@ -73,7 +73,7 @@ router.get('/:filename', authenticateImageRequest, async (req, res) => {
     res.sendFile(imagePath);
     
   } catch (error) {
-    console.error('Error in image route:', error);
+    console.error('Error in secure image route:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

@@ -23,83 +23,7 @@ console.log(`Loaded ${API_KEYS.length} API key(s) for ultra-fast parallel proces
 
 const geminiClients = API_KEYS.map(key => new GoogleGenerativeAI(key));
 
-// Enhanced extraction prompt
-const EXTRACTION_PROMPT = `You are a data extraction specialist. Extract information from this invoice/document image and categorize it into one of these categories:
-1. Labour
-2. Material
-3. Equipment
-4. Consumables
-5. Subtrade
-6. LabourTimesheet
-7. EquipmentLog
-
-For each item found, extract ALL available fields and return a JSON object with:
-- category: (Labour/Material/Equipment/Consumables/Subtrade/LabourTimesheet/EquipmentLog)
-- data: object containing all extracted fields
-
-CATEGORY CLASSIFICATION RULES:
-- Labour: Use when labour data contains price/cost/amount fields (UNITRATE, TOTALAMOUNT, etc.)
-- LabourTimesheet: Use when labour data does NOT contain any price/cost/amount fields (just time tracking)
-- Equipment: Use when equipment data contains price/cost/amount fields (UNITRATE, TOTALAMOUNT, etc.)
-- EquipmentLog: Use when equipment data does NOT contain any price/cost/amount fields (just usage tracking)
-
-LABOUR fields (extract if present - ALL FIELD NAMES MUST BE CAPITAL):
-- SRNO, DATE, DAY, INVOICENO, EMPLOYEENAME, EMPLOYEECODE, POSITION, ITEMDESCRIPTION, SUBCATEGORY, AREA, INVOICE DATE
-- TOTALHOURS, TOTALHOURSMANUAL, BACKUPHOURS
-- VARIANCE, UOM, UNITRATE, REGULARHOURS, OVERTIMEHOURS, DOUBLEOVERTIMEHOURS, TOTALAMOUNT, O&P, REMOVE, REPLACE, SUBTOTAL
-
-LABOUR TIMESHEET fields (extract if present - NO PRICE FIELDS - ALL FIELD NAMES MUST BE CAPITAL):
-- SRNO, DATE, DAY, EMPLOYEENAME, EMPLOYEECODE, POSITION, ITEMDESCRIPTION, SUBCATEGORY, AREA
-- TIMEIN, TIMEOUT, LUNCHBREAK, TOTALHOURS, TOTALHOURSMANUAL, BACKUPHOURS
-- VARIANCE, REGULARHOURS, OVERTIMEHOURS, DOUBLEOVERTIMEHOURS, 
-
-MATERIAL/CONSUMABLES fields (extract if present - ALL FIELD NAMES MUST BE CAPITAL):
-- SRNO, DATE, DAY, INVOICENO, ITEM, CATEGORY, ITEMDESCRIPTION, SUBCATEGORY, AREA, INVOICE DATE
-- QTY, BACKUPQTY, VARIANCE, UOM, UNITRATE, TOTALAMOUNT, O&P, REMOVE, REPLACE, TAX, SUBTOTAL
-
-EQUIPMENT fields (extract if present - ALL FIELD NAMES MUST BE CAPITAL):
-- SRNO, DATE, DAY, INVOICENO, ITEM, CATEGORY, ITEMDESCRIPTION, SUBCATEGORY, INVOICE DATE
-- QTY, BACKUPQTY, VARIANCE, UOM, UNITRATE, TOTALAMOUNT, O&P, REMOVE, REPLACE, TAX, SUBTOTAL
-
-EQUIPMENT LOG fields (extract if present - NO PRICE FIELDS - ALL FIELD NAMES MUST BE CAPITAL):
-- SRNO, DATE, DAY, ITEM, CATEGORY, ITEMDESCRIPTION, OPERATORNAME, SUBCATEGORY, AREA, INVOICE DATE
-- QTY, BACKUPQTY, VARIANCE, UOM, HOURSUSED, STARTTIME, ENDTIME
-
-SUBTRADE fields (extract if present - ALL FIELD NAMES MUST BE CAPITAL):
-- SRNO, DATE, DAY, INVOICENO, ITEM, CATEGORY, VENDORNAME, ITEMDESCRIPTION, SUBCATEGORY, AREA, INVOICE DATE
-- QTY, BACKUPQTY, UOM, UNITRATE, TOTALAMOUNT, O&P, REMOVE, REPLACE, TAX, SUBTOTAL
-
-IMPORTANT RULES:
-1. Extract ALL text visible in the image
-2. If a field is not present, omit it from the JSON
-3. Return ONLY valid JSON array format: [{"category": "...", "data": {...}}, ...]
-4. If multiple items are present, return multiple objects in the array
-5. Use exact field names as specified above (ALL CAPITAL LETTERS)
-6. For numeric values, extract as numbers not strings
-7. For dates, use format: DD/MM/YYYY 
-8. For time fields, use format: HH:MM or as shown in document
-9. If the page is blank or has no extractable data, return an empty array: []
-10. Sometimes amount is there but quantity is not there than give it as TOTALAMOUNT.
-11. If total amount is mention with some other naming convention than give TOTALAMOUNT again with key as TOTALAMOUNT but it should be compulsory to have TOTALAMOUNT key in each json object with precised value.
-12. Fetch quantity, unit rate and total amount carefully, but if just unit amount and quantity is there but total amount is not there calculate TOTALAMOUNT and give. But striclty do not calculate any other fields except TOTALAMOUNT.
-13. CRITICAL: Check if data contains price/cost/amount fields:
-    - If Labour data has TIMEIN and TIMEOUT fields than it will be in "LabourTimesheet" else it will be in normal "Labour" category.
-    - If Equipment data has UNITRATE, TOTALAMOUNT, or similar price fields → category: "Equipment"
-    - If Equipment data has NO price fields (only usage tracking) → category: "EquipmentLog"
-14. Fetch taxes and all other details related to a json for each image.
-15. If there is any heading like summary or recap above a table or rows of data in image than do not consider data below that heading into json.
-16. CRITICAL: ALL FIELD NAMES IN THE DATA OBJECT MUST BE IN CAPITAL LETTERS (e.g., EMPLOYEENAME, TOTALAMOUNT, UNITRATE)
-17. if there a heading on table or category above rows of data and it look like a category than add it as sub category in data json for these rows, and key field for these values should be subcategory not category.
-18. Format for all type the date should be DD/MM/YYYY.
-19. if there are any invoice date and invoice number is there on image include that in every data json as INVOICE DATE and INVOICE NUMBER object but not as a separate object.
-20. If cheques are there in image, striclty do not consider them for data extraction.
-21. If any row contains REMOVE or REPLACE values, those values must be strictly extracted without omission. Ensure that whenever REMOVE and/or REPLACE columns appear for a row, their corresponding data is always captured completely and accurately. Under no circumstances should REMOVE or REPLACE values be skipped or missed for any row.
-22. AREA - If there is any area deatils and daigram with heading, add that heading as AREA for all json after that diagram and area details, but do not add area details.
-23. If a row appears multiple times, include it in JSON each time. Never skip or merge duplicates.
-24. If a date is linked to a row, use key DATE. If the date appears in the header or footer, use key INVOICE DATE. Include INVOICE DATE in every JSON row.
-25. Sometimes Description is in multiple lines, do not confused and count them as different rows.
-
-Return ONLY the JSON array, no explanations or additional text.`;
+// NOTE: Prompt will come from frontend - no default prompt needed
 
 // Parse Gemini response with robust error handling
 const parseGeminiResponse = (text) => {
@@ -130,13 +54,13 @@ const parseGeminiResponse = (text) => {
   }
 };
 
-// ULTRA-FAST: Advanced rate limiter with aggressive limits
+// Rate limiter for API management
 class UltraFastRateLimiter {
   constructor() {
-    this.keyUsage = new Map(); // keyIndex -> { requests: [], lastReset: timestamp }
-    this.maxRequestsPerMinute = 60; // AGGRESSIVE: 60 requests per minute per key
-    this.burstLimit = 10; // Allow 10 requests in quick succession
-    this.burstWindow = 10000; // 10 seconds burst window
+    this.keyUsage = new Map();
+    this.maxRequestsPerMinute = 60;
+    this.burstLimit = 10;
+    this.burstWindow = 10000;
   }
 
   async waitIfNeeded(keyIndex) {
@@ -147,56 +71,50 @@ class UltraFastRateLimiter {
       burstRequests: []
     };
     
-    // Clean old requests (older than 1 minute)
     keyData.requests = keyData.requests.filter(time => now - time < 60000);
     keyData.burstRequests = keyData.burstRequests.filter(time => now - time < this.burstWindow);
     
-    // Check burst limit first (allows quick bursts)
     if (keyData.burstRequests.length >= this.burstLimit) {
       const oldestBurst = keyData.burstRequests[0];
       const burstWaitTime = this.burstWindow - (now - oldestBurst) + 100;
       
       if (burstWaitTime > 0) {
-        console.log(`   ⚡ Burst limit: waiting ${Math.ceil(burstWaitTime/1000)}s for key ${keyIndex + 1}`);
+        console.log(`   âš¡ Burst limit: waiting ${Math.ceil(burstWaitTime/1000)}s for key ${keyIndex + 1}`);
         await new Promise(resolve => setTimeout(resolve, burstWaitTime));
         return this.waitIfNeeded(keyIndex);
       }
     }
     
-    // Check overall rate limit
     if (keyData.requests.length >= this.maxRequestsPerMinute) {
       const oldestRequest = keyData.requests[0];
-      const waitTime = 60000 - (now - oldestRequest) + 200; // Reduced buffer
+      const waitTime = 60000 - (now - oldestRequest) + 200;
       
       if (waitTime > 0) {
-        console.log(`   ⏳ Rate limit: waiting ${Math.ceil(waitTime/1000)}s for key ${keyIndex + 1}`);
+        console.log(`   â³ Rate limit: waiting ${Math.ceil(waitTime/1000)}s for key ${keyIndex + 1}`);
         await new Promise(resolve => setTimeout(resolve, waitTime));
         return this.waitIfNeeded(keyIndex);
       }
     }
-    
-    // Record this request
+
     keyData.requests.push(now);
     keyData.burstRequests.push(now);
     this.keyUsage.set(keyIndex, keyData);
   }
 
-  // Get the best available key (least loaded)
   getBestAvailableKey() {
     const now = Date.now();
     let bestKey = 0;
-    let minRequests = Infinity;
+    let leastUsage = Infinity;
     
     for (let i = 0; i < API_KEYS.length; i++) {
       const keyData = this.keyUsage.get(i) || { requests: [], burstRequests: [] };
       const recentRequests = keyData.requests.filter(time => now - time < 60000);
-      const recentBursts = keyData.burstRequests.filter(time => now - time < this.burstWindow);
+      const recentBursts = keyData.burstRequests.filter(time => now - time < 10000);
       
-      // Prioritize keys with fewer recent requests and burst capacity
-      const load = recentRequests.length + (recentBursts.length * 2);
+      const usage = recentRequests.length + (recentBursts.length * 2);
       
-      if (load < minRequests) {
-        minRequests = load;
+      if (usage < leastUsage) {
+        leastUsage = usage;
         bestKey = i;
       }
     }
@@ -207,42 +125,44 @@ class UltraFastRateLimiter {
 
 const ultraFastLimiter = new UltraFastRateLimiter();
 
-// Analyze single image with ultra-fast processing and model selection
-const analyzeSingleImageUltraFast = async (imageBase64, pageNumber, keyIndex = null, modelName = 'gemini-2.0-flash') => {
-  // Auto-select best key if not specified
-  if (keyIndex === null) {
-    keyIndex = ultraFastLimiter.getBestAvailableKey();
+// Single image analysis with model and prompt from frontend
+const analyzeSingleImage = async (base64Data, pageNumber, keyIndex, modelName = 'gemini-2.0-flash', prompt) => {
+  // Prompt is required from frontend
+  if (!prompt) {
+    throw new Error('Prompt is required from frontend');
   }
-  
-  // Wait for rate limit if needed (optimized waiting)
+
   await ultraFastLimiter.waitIfNeeded(keyIndex);
+  
+  const genAI = geminiClients[keyIndex];
+  const model = genAI.getGenerativeModel({ model: modelName });
 
-  const model = geminiClients[keyIndex].getGenerativeModel({ 
-    model: modelName  // Use the specified model
-  });
+  if (!base64Data.startsWith('data:image')) {
+    base64Data = `data:image/png;base64,${base64Data.replace(/^data:image\/[a-z]+;base64,/, '')}`;
+  }
 
-  const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, '');
+  const base64Part = base64Data.split(',')[1];
+  
   const imagePart = {
     inlineData: {
-      data: base64Data,
+      data: base64Part,
       mimeType: "image/png",
     },
   };
 
-  const result = await model.generateContent([EXTRACTION_PROMPT, imagePart]);
+  const result = await model.generateContent([prompt, imagePart]);
   const response = await result.response;
   const text = response.text();
 
   return parseGeminiResponse(text);
 };
 
-// ULTRA-FAST: Minimal retry with immediate key rotation
-const retryUltraFast = async (fn, pageNumber, maxRetries = 2) => {
+// Retry mechanism
+const retryWithFallback = async (fn, pageNumber, maxRetries = 2) => {
   let lastError = null;
   
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
-      // Try with the best available key for each attempt
       const keyIndex = ultraFastLimiter.getBestAvailableKey();
       return await fn(keyIndex);
     } catch (error) {
@@ -253,10 +173,9 @@ const retryUltraFast = async (fn, pageNumber, maxRetries = 2) => {
                          error.message.includes('fetch') ||
                          error.message.includes('network');
 
-      // Quick retry only for retryable errors
       if (isRetryable && attempt < maxRetries - 1) {
-        const delay = 200 + (attempt * 300); // Fast retry: 200ms, 500ms
-        console.log(`   🔄 Fast retry ${attempt + 1}/${maxRetries} for page ${pageNumber} after ${delay}ms...`);
+        const delay = 200 + (attempt * 300);
+        console.log(`   ðŸ”„ Fast retry ${attempt + 1}/${maxRetries} for page ${pageNumber} after ${delay}ms...`);
         await new Promise(resolve => setTimeout(resolve, delay));
         continue;
       }
@@ -268,33 +187,56 @@ const retryUltraFast = async (fn, pageNumber, maxRetries = 2) => {
   throw lastError;
 };
 
-// ULTRA-FAST: Maximum parallel processing with intelligent load balancing and model selection
-exports.analyzeImagesUltraFast = async (images, onProgress, modelName = 'gemini-2.0-flash') => {
+// Single image analysis (prompt required from frontend)
+exports.analyzeImage = async (imageBase64, pageNumber, modelName = 'gemini-2.0-flash', prompt) => {
+  if (!prompt) {
+    throw new Error('Prompt is required from frontend');
+  }
+  
+  return await retryWithFallback(
+    async (keyIndex) => {
+      return await analyzeSingleImage(imageBase64, pageNumber, keyIndex, modelName, prompt);
+    },
+    pageNumber
+  );
+};
+
+// Batch image analysis with model and prompt from frontend
+exports.analyzeImagesUltraFast = async (images, onProgress, modelName = 'gemini-2.0-flash', prompt) => {
+  // Prompt is required from frontend
+  if (!prompt) {
+    throw new Error('Prompt is required from frontend');
+  }
+
   console.log(`\n${'='.repeat(70)}`);
   console.log(`ULTRA-FAST PARALLEL ANALYSIS STARTING`);
   console.log(`${'='.repeat(70)}`);
   console.log(`Total images: ${images.length}`);
   console.log(`API Keys: ${API_KEYS.length}`);
   console.log(`Model: ${modelName}`);
-  console.log(`Max parallel: ${API_KEYS.length * 8} (8x per key)`); // AGGRESSIVE: 8x per key
-  console.log(`Target speed: ${Math.min(60, images.length)} pages/minute`);
+  console.log(`Prompt from frontend: Yes`);
+  console.log(`Max parallel: ${API_KEYS.length * 8} (8x per key)`);
   console.log(`${'='.repeat(70)}\n`);
   
   const results = new Array(images.length).fill(null);
   let completedCount = 0;
   const startTime = Date.now();
   
-  // ULTRA-FAST: Maximum concurrency
-  const MAX_CONCURRENT = API_KEYS.length * 8; // 8 requests per key simultaneously
+  const MAX_CONCURRENT = API_KEYS.length * 8;
   
-  // Process images with maximum concurrency
   const processImage = async (image, index) => {
     const imageStartTime = Date.now();
     
     try {
-      const result = await retryUltraFast(
+      const result = await retryWithFallback(
         async (keyIndex) => {
-          return await analyzeSingleImageUltraFast(image.base64, image.pageNumber, keyIndex, modelName);
+          return await analyzeSingleImage(
+            image.base64, 
+            image.pageNumber, 
+            keyIndex, 
+            modelName,
+            prompt
+          );
         },
         image.pageNumber
       );
@@ -313,15 +255,15 @@ exports.analyzeImagesUltraFast = async (images, onProgress, modelName = 'gemini-
       }
 
       if (result.parsed.length > 0) {
-        console.log(`   ⚡ Page ${image.pageNumber} - ${result.parsed.length} items (${processingTime}ms)`);
+        console.log(`   âš¡ Page ${image.pageNumber} - ${result.parsed.length} items (${processingTime}ms)`);
       } else if (result.error) {
-        console.log(`   ⚠️ Page ${image.pageNumber} - Error: ${result.error.substring(0, 30)}...`);
+        console.log(`   âš ï¸ Page ${image.pageNumber} - Error: ${result.error.substring(0, 30)}...`);
       } else {
-        console.log(`   ✓ Page ${image.pageNumber} - Empty (${processingTime}ms)`);
+        console.log(`   âœ“ Page ${image.pageNumber} - Empty (${processingTime}ms)`);
       }
 
     } catch (error) {
-      console.error(`   ❌ Page ${image.pageNumber} - Failed: ${error.message.substring(0, 30)}...`);
+      console.error(`   âŒ Page ${image.pageNumber} - Failed: ${error.message.substring(0, 30)}...`);
       
       results[index] = {
         parsed: [],
@@ -336,7 +278,7 @@ exports.analyzeImagesUltraFast = async (images, onProgress, modelName = 'gemini-
     }
   };
 
-  // ULTRA-FAST: Process ALL images simultaneously with controlled batching
+  // Process with controlled concurrency
   const processingPromises = [];
   
   for (let i = 0; i < images.length; i += MAX_CONCURRENT) {
@@ -345,19 +287,15 @@ exports.analyzeImagesUltraFast = async (images, onProgress, modelName = 'gemini-
       processImage(image, i + batchIndex)
     );
     
-    // Start batch immediately without waiting
     processingPromises.push(...batchPromises);
     
-    // Small stagger between batch starts to prevent overload
     if (i + MAX_CONCURRENT < images.length) {
-      await new Promise(resolve => setTimeout(resolve, 50)); // Minimal delay
+      await new Promise(resolve => setTimeout(resolve, 50));
     }
   }
 
-  // Wait for ALL processing to complete
   await Promise.all(processingPromises);
 
-  // Calculate final statistics
   const endTime = Date.now();
   const totalTime = (endTime - startTime) / 1000;
   const successCount = results.filter(r => r.parsed.length > 0).length;
@@ -369,31 +307,40 @@ exports.analyzeImagesUltraFast = async (images, onProgress, modelName = 'gemini-
   console.log(`\n${'='.repeat(70)}`);
   console.log(`ULTRA-FAST ANALYSIS COMPLETE`);
   console.log(`${'='.repeat(70)}`);
-  console.log(`✅ Pages with data: ${successCount}/${images.length}`);
-  console.log(`✓ Empty pages: ${emptyCount}/${images.length}`);
-  console.log(`❌ Errors: ${errorCount}/${images.length}`);
-  console.log(`📊 Total items extracted: ${totalItems}`);
-  console.log(`⚡ Total time: ${totalTime.toFixed(1)}s`);
-  console.log(`🚀 Speed: ${pagesPerMinute.toFixed(1)} pages/minute`);
-  console.log(`🎯 Error rate: ${((errorCount / images.length) * 100).toFixed(1)}%`);
-  console.log(`🤖 Model used: ${modelName}`);
+  console.log(`âœ… Pages with data: ${successCount}/${images.length}`);
+  console.log(`âœ“ Empty pages: ${emptyCount}/${images.length}`);
+  console.log(`âŒ Errors: ${errorCount}/${images.length}`);
+  console.log(`ðŸ“Š Total items extracted: ${totalItems}`);
+  console.log(`âš¡ Total time: ${totalTime.toFixed(1)}s`);
+  console.log(`ðŸš€ Speed: ${pagesPerMinute.toFixed(1)} pages/minute`);
+  console.log(`ðŸŽ¯ Error rate: ${((errorCount / images.length) * 100).toFixed(1)}%`);
+  console.log(`ðŸ¤– Model used: ${modelName}`);
+  console.log(`ðŸ“ Prompt from frontend: Yes`);
   console.log(`${'='.repeat(70)}\n`);
   
   return results;
 };
 
-// Default export (uses ultra-fast)
+// Backward compatibility exports
 exports.analyzeImagesOptimized = exports.analyzeImagesUltraFast;
-
-// Backward compatibility
 exports.analyzeImagesParallel = exports.analyzeImagesUltraFast;
 
-// Single image analysis with model selection
-exports.analyzeImage = async (imageBase64, pageNumber, modelName = 'gemini-2.0-flash') => {
-  return await retryUltraFast(
-    async (keyIndex) => {
-      return await analyzeSingleImageUltraFast(imageBase64, pageNumber, keyIndex, modelName);
-    },
-    pageNumber
-  );
+// Get available models
+exports.getAvailableModels = () => {
+  return [
+    'gemini-2.0-flash',
+    'gemini-2.5-flash',
+    'gemini-2.5-pro'
+  ];
+};
+
+// Validate model
+exports.validateModel = (modelName) => {
+  const availableModels = exports.getAvailableModels();
+  return availableModels.includes(modelName);
+};
+
+// Get default prompt (for frontend reference)
+exports.getDefaultPrompt = () => {
+  return DEFAULT_EXTRACTION_PROMPT;
 };
