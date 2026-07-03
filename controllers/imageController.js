@@ -2,6 +2,43 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const geminiService = require('../services/geminiService');
+const claudeService = require('../services/claudeService');
+const openaiService = require('../services/openaiService');
+
+const CLAUDE_MODELS = ['claude-opus-4-8', 'claude-sonnet-4-6', 'claude-haiku-4-5-20251001'];
+const OPENAI_MODELS = ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo'];
+const getAIService = (model) => {
+  if (CLAUDE_MODELS.includes(model)) return claudeService;
+  if (OPENAI_MODELS.includes(model)) return openaiService;
+  return geminiService;
+};
+
+const MODEL_PRICING = {
+  'gemini-2.0-flash': { input: 0.10, output: 0.40 },
+  'gemini-2.5-flash': { input: 0.15, output: 0.60 },
+  'gemini-2.5-pro':   { input: 1.25, output: 10.00 },
+  'claude-opus-4-8':  { input: 15.00, output: 75.00 },
+  'claude-sonnet-4-6':{ input: 3.00, output: 15.00 },
+  'claude-haiku-4-5-20251001': { input: 0.80, output: 4.00 },
+  'gpt-4o':           { input: 2.50, output: 10.00 },
+  'gpt-4o-mini':      { input: 0.15, output: 0.60 },
+  'gpt-4-turbo':      { input: 10.00, output: 30.00 }
+};
+
+const calculateApiCost = (model, inputTokens, outputTokens) => {
+  const pricing = MODEL_PRICING[model] || { input: 0, output: 0 };
+  const inputCost = (inputTokens / 1_000_000) * pricing.input;
+  const outputCost = (outputTokens / 1_000_000) * pricing.output;
+  return {
+    model,
+    inputTokens,
+    outputTokens,
+    inputCost: parseFloat(inputCost.toFixed(6)),
+    outputCost: parseFloat(outputCost.toFixed(6)),
+    totalCost: parseFloat((inputCost + outputCost).toFixed(6)),
+    currency: 'USD'
+  };
+};
 const calculationService = require('../services/calculationService');
 const sessionStore = require('../services/sessionStore');
 
@@ -126,7 +163,7 @@ exports.processImage = async (req, res) => {
     }
 
     // Validate model
-    const allowedModels = ['gemini-2.0-flash', 'gemini-2.5-flash', 'gemini-2.5-pro'];
+    const allowedModels = ['gemini-2.0-flash', 'gemini-2.5-flash', 'gemini-2.5-pro', 'claude-opus-4-8', 'claude-sonnet-4-6', 'claude-haiku-4-5-20251001', 'gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo'];
     if (!allowedModels.includes(model)) {
       return res.status(400).json({
         error: 'Invalid model',
@@ -230,7 +267,7 @@ exports.processImage = async (req, res) => {
 
     try {
       // Use prompt from frontend (required)
-      analysisResult = await geminiService.analyzeImage(
+      analysisResult = await getAIService(model).analyzeImage(
         image,
         pageNumber,
         model,
@@ -317,8 +354,15 @@ exports.processImage = async (req, res) => {
     console.log(`- Consumables items: ${finalResult.consumables.length}`);
     console.log(`- Subtrade items: ${finalResult.subtrade.length}`);
 
+    // Calculate API cost from token usage
+    const apiCost = calculateApiCost(
+      model,
+      analysisResult.usage?.inputTokens || 0,
+      analysisResult.usage?.outputTokens || 0
+    );
+
     // Send final result
-    res.write(`data: ${JSON.stringify({ 
+    res.write(`data: ${JSON.stringify({
       type: 'complete',
       sessionId: sessionId,
       pageData: processedData,
@@ -330,6 +374,7 @@ exports.processImage = async (req, res) => {
       promptUsed: true, // Always true since prompt is required from frontend
       userStats: processingManager.getUserStats(userId),
       processingStats: processingStats,
+      apiCost: apiCost,
       message: `Processing complete for page ${pageNumber} using ${model}!`
     })}\n\n`);
 
@@ -406,7 +451,7 @@ console.log(`Received prompt from frontend (batch): "${prompt}"`);
     }
 
     // Validate model
-    const allowedModels = ['gemini-2.0-flash', 'gemini-2.5-flash', 'gemini-2.5-pro'];
+    const allowedModels = ['gemini-2.0-flash', 'gemini-2.5-flash', 'gemini-2.5-pro', 'claude-opus-4-8', 'claude-sonnet-4-6', 'claude-haiku-4-5-20251001', 'gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo'];
     if (!allowedModels.includes(model)) {
       return res.status(400).json({
         error: 'Invalid model',
@@ -499,7 +544,7 @@ console.log(`Received prompt from frontend (batch): "${prompt}"`);
     }));
 
     // Process all images
-    const analysisResults = await geminiService.analyzeImagesUltraFast(
+    const analysisResults = await getAIService(model).analyzeImagesUltraFast(
       imageData,
       (completed, total, currentPage) => {
         if (!shouldCancel && !res.destroyed) {
@@ -612,8 +657,13 @@ console.log(`Received prompt from frontend (batch): "${prompt}"`);
     console.log(`- Consumables items: ${collectedResult.consumables.length}`);
     console.log(`- Subtrade items: ${collectedResult.subtrade.length}`);
 
+    // Calculate API cost from accumulated token usage across all pages
+    const totalInputTokens = analysisResults.reduce((sum, r) => sum + (r?.usage?.inputTokens || 0), 0);
+    const totalOutputTokens = analysisResults.reduce((sum, r) => sum + (r?.usage?.outputTokens || 0), 0);
+    const apiCost = calculateApiCost(model, totalInputTokens, totalOutputTokens);
+
     // Send final result
-    res.write(`data: ${JSON.stringify({ 
+    res.write(`data: ${JSON.stringify({
       type: 'complete',
       sessionId: sessionId,
       allPagesData: allPagesData,
@@ -625,6 +675,7 @@ console.log(`Received prompt from frontend (batch): "${prompt}"`);
       promptUsed: true, // Always true since prompt is required from frontend
       userStats: processingManager.getUserStats(userId),
       processingStats: processingStats,
+      apiCost: apiCost,
       message: `Batch processing complete! ${images.length} images processed using ${model}.`
     })}\n\n`);
 

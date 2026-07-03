@@ -153,8 +153,15 @@ const analyzeSingleImage = async (base64Data, pageNumber, keyIndex, modelName = 
   const result = await model.generateContent([prompt, imagePart]);
   const response = await result.response;
   const text = response.text();
-
-  return parseGeminiResponse(text);
+  const usageMetadata = response.usageMetadata || {};
+  const parsedResult = parseGeminiResponse(text);
+  return {
+    ...parsedResult,
+    usage: {
+      inputTokens: usageMetadata.promptTokenCount || 0,
+      outputTokens: usageMetadata.candidatesTokenCount || 0
+    }
+  };
 };
 
 // Retry mechanism
@@ -244,7 +251,8 @@ exports.analyzeImagesUltraFast = async (images, onProgress, modelName = 'gemini-
       results[index] = {
         parsed: result.parsed,
         raw: JSON.stringify(result.parsed),
-        error: result.error
+        error: result.error,
+        usage: result.usage
       };
 
       completedCount++;
