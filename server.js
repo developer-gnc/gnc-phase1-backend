@@ -78,8 +78,8 @@ app.use(cors({
 }));
 
 // Body parsing with increased limits for base64 images
-app.use(express.json({ limit: '200mb' }));
-app.use(express.urlencoded({ extended: true, limit: '200mb' }));
+app.use(express.json({ limit: '50mb' })); // Increased for base64 images
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Secure image serving with authentication
 app.use('/secure-images', secureImageRoutes);

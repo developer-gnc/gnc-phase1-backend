@@ -2,22 +2,8 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const geminiService = require('../services/geminiService');
-const openaiService = require('../services/openaiService');
-const claudeService = require('../services/claudeService');
 const calculationService = require('../services/calculationService');
 const sessionStore = require('../services/sessionStore');
-
-const ALLOWED_MODELS = [
-  'gemini-2.0-flash', 'gemini-2.5-flash', 'gemini-2.5-pro',
-  'gpt-4o', 'gpt-4o-mini',
-  'claude-opus-4-8', 'claude-sonnet-4-6', 'claude-haiku-4-5-20251001'
-];
-
-const getAIService = (modelName) => {
-  if (modelName.startsWith('gpt-')) return openaiService;
-  if (modelName.startsWith('claude-')) return claudeService;
-  return geminiService;
-};
 
 // User-isolated processing sessions
 const activeProcessingSessions = new Map();
@@ -140,10 +126,11 @@ exports.processImage = async (req, res) => {
     }
 
     // Validate model
-    if (!ALLOWED_MODELS.includes(model)) {
+    const allowedModels = ['gemini-2.0-flash', 'gemini-2.5-flash', 'gemini-2.5-pro'];
+    if (!allowedModels.includes(model)) {
       return res.status(400).json({
         error: 'Invalid model',
-        message: `Model must be one of: ${ALLOWED_MODELS.join(', ')}`
+        message: `Model must be one of: ${allowedModels.join(', ')}`
       });
     }
 
@@ -242,8 +229,8 @@ exports.processImage = async (req, res) => {
     let analysisResult;
 
     try {
-      const aiService = getAIService(model);
-      analysisResult = await aiService.analyzeImage(
+      // Use prompt from frontend (required)
+      analysisResult = await geminiService.analyzeImage(
         image,
         pageNumber,
         model,
@@ -419,10 +406,11 @@ console.log(`Received prompt from frontend (batch): "${prompt}"`);
     }
 
     // Validate model
-    if (!ALLOWED_MODELS.includes(model)) {
+    const allowedModels = ['gemini-2.0-flash', 'gemini-2.5-flash', 'gemini-2.5-pro'];
+    if (!allowedModels.includes(model)) {
       return res.status(400).json({
         error: 'Invalid model',
-        message: `Model must be one of: ${ALLOWED_MODELS.join(', ')}`
+        message: `Model must be one of: ${allowedModels.join(', ')}`
       });
     }
 
@@ -511,8 +499,7 @@ console.log(`Received prompt from frontend (batch): "${prompt}"`);
     }));
 
     // Process all images
-    const aiService = getAIService(model);
-    const analysisResults = await aiService.analyzeImagesUltraFast(
+    const analysisResults = await geminiService.analyzeImagesUltraFast(
       imageData,
       (completed, total, currentPage) => {
         if (!shouldCancel && !res.destroyed) {

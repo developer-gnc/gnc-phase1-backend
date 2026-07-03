@@ -137,14 +137,16 @@ const analyzeSingleImage = async (base64Data, pageNumber, keyIndex, modelName = 
   const genAI = geminiClients[keyIndex];
   const model = genAI.getGenerativeModel({ model: modelName });
 
-  const mimeMatch = base64Data.match(/^data:(image\/[a-z]+);base64,/);
-  const mimeType = mimeMatch ? mimeMatch[1] : 'image/jpeg';
-  const base64Part = base64Data.includes(',') ? base64Data.split(',')[1] : base64Data;
+  if (!base64Data.startsWith('data:image')) {
+    base64Data = `data:image/png;base64,${base64Data.replace(/^data:image\/[a-z]+;base64,/, '')}`;
+  }
+
+  const base64Part = base64Data.split(',')[1];
 
   const imagePart = {
     inlineData: {
       data: base64Part,
-      mimeType: mimeType,
+      mimeType: "image/png",
     },
   };
 

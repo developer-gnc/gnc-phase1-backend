@@ -1,19 +1,9 @@
 const express = require('express');
 const { requireAuth } = require('../middleware/auth');
 const imageController = require('../controllers/imageController');
+const geminiService = require('../services/geminiService');
 
 const router = express.Router();
-
-const ALL_MODELS = [
-  { value: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash', description: 'Fast and efficient', provider: 'google' },
-  { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', description: 'Faster with improved accuracy', provider: 'google' },
-  { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro', description: 'Most accurate Gemini model', provider: 'google' },
-  { value: 'gpt-4o', label: 'GPT-4o', description: 'OpenAI flagship - high accuracy', provider: 'openai' },
-  { value: 'gpt-4o-mini', label: 'GPT-4o Mini', description: 'OpenAI fast and cost-efficient', provider: 'openai' },
-  { value: 'claude-opus-4-8', label: 'Claude Opus', description: 'Most capable Claude model', provider: 'anthropic' },
-  { value: 'claude-sonnet-4-6', label: 'Claude Sonnet', description: 'Balanced speed and accuracy', provider: 'anthropic' },
-  { value: 'claude-haiku-4-5-20251001', label: 'Claude Haiku', description: 'Fastest Claude model', provider: 'anthropic' }
-];
 
 // Apply authentication to all image processing routes
 router.use(requireAuth);
@@ -36,14 +26,23 @@ router.get('/system-stats', imageController.getSystemStats);
 // Get available AI models
 router.get('/available-models', (req, res) => {
   try {
+    const models = [
+      { value: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash', description: 'Fast and efficient (Current)' },
+      { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', description: 'Faster with improved accuracy' },
+      { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro', description: 'Most accurate, slower processing' }
+    ];
+
     res.json({
       success: true,
-      models: ALL_MODELS,
+      models: models,
       defaultModel: 'gemini-2.0-flash',
       timestamp: new Date().toISOString()
     });
   } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch available models', message: error.message });
+    res.status(500).json({
+      error: 'Failed to fetch available models',
+      message: error.message
+    });
   }
 });
 
@@ -51,22 +50,22 @@ router.get('/available-models', (req, res) => {
 router.post('/validate-model', (req, res) => {
   try {
     const { model } = req.body;
-    
+
     if (!model) {
       return res.status(400).json({
         error: 'Model name required',
         message: 'Please provide a model name to validate'
       });
     }
-    
-    const allowedModelValues = ALL_MODELS.map(m => m.value);
-    const isValid = allowedModelValues.includes(model);
+
+    const allowedModels = ['gemini-2.0-flash', 'gemini-2.5-flash', 'gemini-2.5-pro'];
+    const isValid = allowedModels.includes(model);
 
     res.json({
       success: true,
       model: model,
       isValid: isValid,
-      availableModels: allowedModelValues,
+      availableModels: allowedModels,
       timestamp: new Date().toISOString()
     });
   } catch (error) {
@@ -81,30 +80,31 @@ router.post('/validate-model', (req, res) => {
 router.post('/test-analyze', async (req, res) => {
   try {
     const { image, pageNumber = 1, model = 'gemini-2.0-flash', prompt } = req.body;
-    
+
     if (!image) {
       return res.status(400).json({
         error: 'Image required',
         message: 'Please provide a base64 encoded image'
       });
     }
-    
+
     if (!prompt) {
       return res.status(400).json({
         error: 'Prompt required',
         message: 'Please provide a prompt for data extraction'
       });
     }
-    
+
     console.log(`Test analysis request from user: ${req.user.email}`);
     console.log(`Page: ${pageNumber}, Model: ${model}, Prompt from frontend: Yes`);
-    
-    const geminiService = require('../services/geminiService');
-    const openaiService = require('../services/openaiService');
-    const claudeService = require('../services/claudeService');
-    const aiService = model.startsWith('gpt-') ? openaiService : model.startsWith('claude-') ? claudeService : geminiService;
-    const result = await aiService.analyzeImage(image, pageNumber, model, prompt);
-    
+
+    const result = await geminiService.analyzeImage(
+      image,
+      pageNumber,
+      model,
+      prompt
+    );
+
     res.json({
       success: true,
       pageNumber: pageNumber,
@@ -117,7 +117,7 @@ router.post('/test-analyze', async (req, res) => {
       processedBy: req.user.email,
       processedAt: new Date().toISOString()
     });
-    
+
   } catch (error) {
     console.error('Test analysis error:', error);
     res.status(500).json({
@@ -141,11 +141,15 @@ router.get('/health', (req, res) => {
       singleImageProcessing: true,
       batchImageProcessing: true,
       modelSelection: true,
-      promptFromFrontend: true, // Prompt must come from frontend
+      promptFromFrontend: true,
       userIsolation: true,
       parallelProcessing: true
     },
-    availableModels: ALL_MODELS,
+    availableModels: [
+      { value: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash', description: 'Fast and efficient (Current)' },
+      { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', description: 'Faster with improved accuracy' },
+      { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro', description: 'Most accurate, slower processing' }
+    ],
     endpoints: {
       processImage: 'POST /process-image',
       processBatch: 'POST /process-batch-images',
