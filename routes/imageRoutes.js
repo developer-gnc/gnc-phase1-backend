@@ -27,9 +27,9 @@ router.get('/system-stats', imageController.getSystemStats);
 router.get('/available-models', (req, res) => {
   try {
     const models = [
-      { value: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash', description: 'Fast and efficient (Current)' },
-      { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', description: 'Faster with improved accuracy' },
-      { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro', description: 'Most accurate, slower processing' },
+      { value: 'gemini-3.1-flash-lite', label: 'Gemini 3.1-Flash', description: 'Fast and efficient (Current)' },
+      { value: 'gemini-3.5-flash', label: 'Gemini 3.5 Flash', description: 'Faster with improved accuracy' },
+      { value: 'gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro', description: 'Most accurate, slower processing' },
       { value: 'claude-opus-4-8', label: 'Claude Opus 4', description: 'Highest accuracy, slower processing' },
       { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4', description: 'Balanced speed and accuracy' },
       { value: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4', description: 'Fastest Claude model' },
@@ -41,7 +41,7 @@ router.get('/available-models', (req, res) => {
     res.json({
       success: true,
       models: models,
-      defaultModel: 'gemini-2.0-flash',
+      defaultModel: 'gemini-3.1-flash-lite',
       timestamp: new Date().toISOString()
     });
   } catch (error) {
@@ -64,7 +64,7 @@ router.post('/validate-model', (req, res) => {
       });
     }
 
-    const allowedModels = ['gemini-2.0-flash', 'gemini-2.5-flash', 'gemini-2.5-pro', 'claude-opus-4-8', 'claude-sonnet-4-6', 'claude-haiku-4-5-20251001', 'gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo'];
+    const allowedModels = ['gemini-3.1-flash-lite', 'gemini-3.5-flash', 'gemini-3.1-pro-preview', 'claude-opus-4-8', 'claude-sonnet-4-6', 'claude-haiku-4-5-20251001', 'gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo'];
     const isValid = allowedModels.includes(model);
 
     res.json({
@@ -85,7 +85,7 @@ router.post('/validate-model', (req, res) => {
 // Test single image analysis (for testing purposes)
 router.post('/test-analyze', async (req, res) => {
   try {
-    const { image, pageNumber = 1, model = 'gemini-2.0-flash', prompt } = req.body;
+    const { image, pageNumber = 1, model = 'gemini-3.1-flash-lite', prompt } = req.body;
 
     if (!image) {
       return res.status(400).json({
@@ -152,9 +152,9 @@ router.get('/health', (req, res) => {
       parallelProcessing: true
     },
     availableModels: [
-      { value: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash', description: 'Fast and efficient (Current)' },
-      { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', description: 'Faster with improved accuracy' },
-      { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro', description: 'Most accurate, slower processing' }
+      { value: 'gemini-3.1-flash-lite', label: 'Gemini 3.1-Flash', description: 'Fast and efficient (Current)' },
+      { value: 'gemini-3.5-flash', label: 'Gemini 3.5 Flash', description: 'Faster with improved accuracy' },
+      { value: 'gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro', description: 'Most accurate, slower processing' }
     ],
     endpoints: {
       processImage: 'POST /process-image',
@@ -165,7 +165,7 @@ router.get('/health', (req, res) => {
     },
     requirements: {
       prompt: 'Required from frontend for all processing',
-      model: 'Optional - defaults to gemini-2.0-flash',
+      model: 'Optional - defaults to gemini-3.1-flash-lite',
       authentication: 'Required for all endpoints'
     }
   });

@@ -126,7 +126,7 @@ class UltraFastRateLimiter {
 const ultraFastLimiter = new UltraFastRateLimiter();
 
 // Single image analysis with model and prompt from frontend
-const analyzeSingleImage = async (base64Data, pageNumber, keyIndex, modelName = 'gemini-2.0-flash', prompt) => {
+const analyzeSingleImage = async (base64Data, pageNumber, keyIndex, modelName = 'gemini-3.1-flash-lite', prompt) => {
   // Prompt is required from frontend
   if (!prompt) {
     throw new Error('Prompt is required from frontend');
@@ -195,7 +195,7 @@ const retryWithFallback = async (fn, pageNumber, maxRetries = 2) => {
 };
 
 // Single image analysis (prompt required from frontend)
-exports.analyzeImage = async (imageBase64, pageNumber, modelName = 'gemini-2.0-flash', prompt) => {
+exports.analyzeImage = async (imageBase64, pageNumber, modelName = 'gemini-3.1-flash-lite', prompt) => {
   if (!prompt) {
     throw new Error('Prompt is required from frontend');
   }
@@ -209,7 +209,7 @@ exports.analyzeImage = async (imageBase64, pageNumber, modelName = 'gemini-2.0-f
 };
 
 // Batch image analysis with model and prompt from frontend
-exports.analyzeImagesUltraFast = async (images, onProgress, modelName = 'gemini-2.0-flash', prompt) => {
+exports.analyzeImagesUltraFast = async (images, onProgress, modelName = 'gemini-3.1-flash-lite', prompt) => {
   // Prompt is required from frontend
   if (!prompt) {
     throw new Error('Prompt is required from frontend');
@@ -271,7 +271,7 @@ exports.analyzeImagesUltraFast = async (images, onProgress, modelName = 'gemini-
       }
 
     } catch (error) {
-      console.error(`   âŒ Page ${image.pageNumber} - Failed: ${error.message.substring(0, 30)}...`);
+      console.error(`   Page ${image.pageNumber} - FULL ERROR:`, error.message);
       
       results[index] = {
         parsed: [],
@@ -336,9 +336,9 @@ exports.analyzeImagesParallel = exports.analyzeImagesUltraFast;
 // Get available models
 exports.getAvailableModels = () => {
   return [
-    'gemini-2.0-flash',
-    'gemini-2.5-flash',
-    'gemini-2.5-pro'
+    'gemini-3.1-flash-lite',
+    'gemini-3.5-flash',
+    'gemini-3.1-pro-preview'
   ];
 };
 

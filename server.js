@@ -138,9 +138,9 @@ app.get('/', (req, res) => {
       authenticationRequired: true
     },
     availableModels: [
-      'gemini-2.0-flash',
-      'gemini-2.5-flash',
-      'gemini-2.5-pro'
+      'gemini-3.1-flash-lite',
+      'gemini-3.5-flash',
+      'gemini-3.1-pro-preview'
     ],
     endpoints: {
       health: '/api/health',
@@ -154,7 +154,7 @@ app.get('/', (req, res) => {
       'v2.0.0': [
         'Removed PDF upload dependency',
         'Added direct image upload with page numbers',
-        'Added AI model selection (Gemini 2.0 Flash, 1.5 Pro, 1.5 Flash)',
+        'Added AI model selection (Gemini 3.1-Flash, 1.5 Pro, 1.5 Flash)',
         'Added custom prompt support',
         'Added batch image processing',
         'Maintained user isolation and parallel processing',
@@ -184,9 +184,9 @@ app.get('/api/dashboard', authMiddleware.requireAuth, (req, res) => {
       batchProcessing: true
     },
     availableModels: [
-      'gemini-2.0-flash',
-      'gemini-2.5-flash',
-      'gemini-2.5-pro'
+      'gemini-3.1-flash-lite',
+      'gemini-3.5-flash',
+      'gemini-3.1-pro-preview'
     ]
   });
 });
@@ -286,7 +286,7 @@ if (fs.existsSync(sslKeyPath) && fs.existsSync(sslCertPath)) {
     console.log('✅ MongoDB session store active');
     console.log('🔐 Authentication required for all processing');
     console.log('👥 Multi-user isolation ACTIVE');
-    console.log('🤖 AI Model Selection: Gemini 2.0 Flash, 2.5 Flash, 2.5 Pro');
+    console.log('🤖 AI Model Selection: Gemini 3.1-Flash, 2.5 Flash, 2.5 Pro');
     console.log('📝 Prompt from Frontend required');
     console.log('⚡ Batch Processing with parallel execution');
     console.log('🛡️ Secure image serving with authentication');
@@ -304,7 +304,7 @@ if (fs.existsSync(sslKeyPath) && fs.existsSync(sslCertPath)) {
     console.log('✅ MongoDB session store active');
     console.log('🔐 Authentication required for all processing');
     console.log('👥 Multi-user isolation ACTIVE');
-    console.log('🤖 AI Model Selection: Gemini 2.0 Flash, 1.5 Pro, 1.5 Flash');
+    console.log('🤖 AI Model Selection: Gemini 3.1-Flash, 1.5 Pro, 1.5 Flash');
     console.log('📝 Custom Prompt Support enabled');
     console.log('⚡ Batch Processing with parallel execution');
     console.log('🛡️ Secure image serving with authentication');

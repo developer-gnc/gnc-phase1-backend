@@ -82,9 +82,9 @@ backend/
 
 ### Multi-Model Support
 The system supports multiple Google Gemini AI models:
-- **Gemini 2.0 Flash** - Fast and efficient (default)
-- **Gemini 2.5 Flash** - Enhanced accuracy with improved speed
-- **Gemini 2.5 Pro** - Maximum accuracy for complex documents
+- **Gemini 3.1-Flash** - Fast and efficient (default)
+- **Gemini 3.5 Flash** - Enhanced accuracy with improved speed
+- **Gemini 3.1 Pro** - Maximum accuracy for complex documents
 
 ### Ultra-Fast Parallel Processing
 - Supports up to 10 concurrent API keys for maximum throughput

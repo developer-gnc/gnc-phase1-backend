@@ -14,9 +14,9 @@ const getAIService = (model) => {
 };
 
 const MODEL_PRICING = {
-  'gemini-2.0-flash': { input: 0.10, output: 0.40 },
-  'gemini-2.5-flash': { input: 0.15, output: 0.60 },
-  'gemini-2.5-pro':   { input: 1.25, output: 10.00 },
+  'gemini-3.1-flash-lite': { input: 0.10, output: 0.40 },
+  'gemini-3.5-flash': { input: 0.15, output: 0.60 },
+  'gemini-3.1-pro-preview':   { input: 1.25, output: 10.00 },
   'claude-opus-4-8':  { input: 15.00, output: 75.00 },
   'claude-sonnet-4-6':{ input: 3.00, output: 15.00 },
   'claude-haiku-4-5-20251001': { input: 0.80, output: 4.00 },
@@ -144,7 +144,7 @@ exports.processImage = async (req, res) => {
     const { 
       image, 
       pageNumber = 1, 
-      model = 'gemini-2.0-flash',
+      model = 'gemini-3.1-flash-lite',
       prompt // Required from frontend
     } = req.body;
    
@@ -163,7 +163,7 @@ exports.processImage = async (req, res) => {
     }
 
     // Validate model
-    const allowedModels = ['gemini-2.0-flash', 'gemini-2.5-flash', 'gemini-2.5-pro', 'claude-opus-4-8', 'claude-sonnet-4-6', 'claude-haiku-4-5-20251001', 'gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo'];
+    const allowedModels = ['gemini-3.1-flash-lite', 'gemini-3.5-flash', 'gemini-3.1-pro-preview', 'claude-opus-4-8', 'claude-sonnet-4-6', 'claude-haiku-4-5-20251001', 'gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo'];
     if (!allowedModels.includes(model)) {
       return res.status(400).json({
         error: 'Invalid model',
@@ -431,7 +431,7 @@ exports.processBatchImages = async (req, res) => {
   try {
     const { 
       images, 
-      model = 'gemini-2.0-flash',
+      model = 'gemini-3.1-flash-lite',
       prompt // Required from frontend
     } = req.body;
   
@@ -451,7 +451,7 @@ console.log(`Received prompt from frontend (batch): "${prompt}"`);
     }
 
     // Validate model
-    const allowedModels = ['gemini-2.0-flash', 'gemini-2.5-flash', 'gemini-2.5-pro', 'claude-opus-4-8', 'claude-sonnet-4-6', 'claude-haiku-4-5-20251001', 'gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo'];
+    const allowedModels = ['gemini-3.1-flash-lite', 'gemini-3.5-flash', 'gemini-3.1-pro-preview', 'claude-opus-4-8', 'claude-sonnet-4-6', 'claude-haiku-4-5-20251001', 'gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo'];
     if (!allowedModels.includes(model)) {
       return res.status(400).json({
         error: 'Invalid model',
